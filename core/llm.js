@@ -15,17 +15,47 @@
 const DEFAULT_BASE = 'https://api.deepseek.com/v1';
 const DEFAULT_MODEL = 'deepseek-chat';
 
+// 从 ~/.memlocal/config.json 的 deepseek 段读取配置（CLI 未显式传 opts 时兜底）
+function configLLMOptions() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const { homeDir } = require('./store');
+    const cfg = JSON.parse(fs.readFileSync(path.join(homeDir(), 'config.json'), 'utf8'));
+    if (cfg && cfg.deepseek && cfg.deepseek.apiKey) {
+      return { apiKey: cfg.deepseek.apiKey, baseURL: cfg.deepseek.baseURL, model: cfg.deepseek.model };
+    }
+  } catch (e) { /* 无 config 或未配置 */ }
+  return {};
+}
+
+// 兼容模型返回的 markdown 代码块包裹 / 前后杂文本，提取纯 JSON
+function extractJSON(text) {
+  if (!text) return null;
+  let t = String(text).trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  // 从第一个 { 到最后一个 } 截取（容忍前后杂文本）
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return null;
+  t = t.slice(start, end + 1);
+  try { return JSON.parse(t); } catch (e) { return null; }
+}
+
 /**
  * 构造一个 async (exMem, incoming) => {winner, confidence, reason} | null
  * - apiKey 缺失 => 直接返回 null（确定性回退）
  * - 调用 DeepSeek OpenAI 兼容 /chat/completions，要求模型返回 JSON
  */
 function makeDeepSeekLLM(opts = {}) {
-  const apiKey = opts.apiKey || process.env.DEEPSEEK_API_KEY || '';
+  const cfg = configLLMOptions();
+  const merged = { ...cfg, ...opts };
+  const apiKey = merged.apiKey || process.env.DEEPSEEK_API_KEY || '';
   if (!apiKey) return null; // 无密钥 => 不启用 LLM
-  const baseURL = opts.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE;
-  const model = opts.model || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
-  const timeoutMs = opts.timeoutMs || 15000;
+  const baseURL = merged.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE;
+  const model = merged.model || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  const timeoutMs = merged.timeoutMs || 15000;
 
   return async function deepseekDecision(exMem, incoming) {
     const prompt = [
@@ -57,8 +87,8 @@ function makeDeepSeekLLM(opts = {}) {
       const json = await resp.json();
       const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
       if (!text) return null;
-      const parsed = JSON.parse(text);
-      if (parsed.winner !== 'incoming' && parsed.winner !== 'existing') return null;
+      const parsed = extractJSON(text);
+      if (!parsed || (parsed.winner !== 'incoming' && parsed.winner !== 'existing')) return null;
       return {
         winner: parsed.winner,
         confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.7,
@@ -78,11 +108,13 @@ function makeDeepSeekLLM(opts = {}) {
  * 无 key 时返回 null（调用方回退确定性抽取）。
  */
 function makeExtractor(opts = {}) {
-  const apiKey = opts.apiKey || process.env.DEEPSEEK_API_KEY || '';
+  const cfg = configLLMOptions();
+  const merged = { ...cfg, ...opts };
+  const apiKey = merged.apiKey || process.env.DEEPSEEK_API_KEY || '';
   if (!apiKey) return null;
-  const baseURL = opts.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE;
-  const model = opts.model || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
-  const timeoutMs = opts.timeoutMs || 20000;
+  const baseURL = merged.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE;
+  const model = merged.model || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  const timeoutMs = merged.timeoutMs || 20000;
 
   return async function deepseekExtract(text) {
     const prompt = [
@@ -112,8 +144,8 @@ function makeExtractor(opts = {}) {
       const json = await resp.json();
       const text2 = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
       if (!text2) return null;
-      const parsed = JSON.parse(text2);
-      const facts = Array.isArray(parsed.facts) ? parsed.facts
+      const parsed = extractJSON(text2);
+      const facts = parsed && Array.isArray(parsed.facts) ? parsed.facts
         .filter(f => f && typeof f.content === 'string' && f.content.trim().length >= 2)
         .map(f => ({ content: f.content.trim(), type: ['identity', 'preference', 'project', 'context', 'fact'].includes(f.type) ? f.type : 'fact' }))
         : [];
@@ -126,4 +158,4 @@ function makeExtractor(opts = {}) {
   };
 }
 
-module.exports = { makeDeepSeekLLM, makeExtractor, DEFAULT_BASE, DEFAULT_MODEL };
+module.exports = { makeDeepSeekLLM, makeExtractor, extractJSON, DEFAULT_BASE, DEFAULT_MODEL };

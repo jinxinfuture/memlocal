@@ -101,5 +101,15 @@ console.log('\n[8] doSync 覆盖全部 9 平台（渲染无异常）');
   }
 }
 
+console.log('\n[9] llm.js extractJSON 容错：markdown 包裹 / 前后杂文本');
+{
+  const { extractJSON } = require('../core/llm');
+  check('纯 JSON', extractJSON('{"winner":"incoming"}').winner === 'incoming');
+  check('markdown 代码块包裹', extractJSON('```json\n{"winner":"existing"}\n```').winner === 'existing');
+  check('前后杂文本', extractJSON('好的，结果如下：{"winner":"incoming"} 请查收').winner === 'incoming');
+  check('非法输入返回 null', extractJSON('not json at all') === null);
+  check('空输入返回 null', extractJSON('') === null);
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail === 0 ? 0 : 1);

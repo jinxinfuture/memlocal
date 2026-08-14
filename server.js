@@ -10,8 +10,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const reconcile = require('./core/reconcile');
-const { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, renderFor } = require('./core/render');
-const { loadStore, saveStore, addAudit } = require('./core/store');
+const { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, renderFor, detectRealLocation } = require('./core/render');
+const storeMod = require('./core/store');
+const { loadStore, saveStore, addAudit } = storeMod;
 const imp = require('./core/import');
 const PLATFORMS = imp.PLATFORMS;
 const { normalizeKey, inferType, parsePlatform, scanCandidates, doImport, doSync } = imp;
@@ -66,11 +67,20 @@ const server = http.createServer(async (req, res) => {
         const store = loadStore();
         const bySource = {};
         for (const m of store.memories) for (const s of m.source.split(',')) bySource[s] = (bySource[s] || 0) + 1;
+        // 各平台真实写回路径探测（透明展示）
+        const cfg = storeMod.loadConfig();
+        const writeTargets = {};
+        for (const platform of Object.keys(PLATFORM_TARGETS)) {
+          const fp = detectRealLocation(platform, cfg, { cwd: process.cwd() });
+          const explicit = !!(cfg.realTargets && cfg.realTargets[platform]);
+          writeTargets[platform] = { file: fp, explicit, detected: !!fp };
+        }
         return sendJSON(res, 200, {
           memories: store.memories,
           connections: store.connections || {},
           stats: { total: store.memories.length, bySource, platforms: Object.keys(PLATFORMS) },
           lastImport: store.lastImport, lastSync: store.lastSync, lastReflect: store.lastReflect,
+          writeTargets, home: storeMod.homeDir(),
         });
       }
       if (p === '/api/import' && req.method === 'POST') {
@@ -181,7 +191,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/api/writeback' && req.method === 'POST') {
         const body = await readBody(req);
-        const r = writeback.applyWrites(loadStore(), { real: !!body.real, dryRun: !!body.dryRun, platforms: body.platforms });
+        const r = writeback.applyWrites(loadStore(), { real: !!body.real, dryRun: !!body.dryRun, platforms: body.platforms, cwd: process.cwd() });
         return sendJSON(res, 200, r);
       }
       if (p === '/api/reflect' && req.method === 'POST') {

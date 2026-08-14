@@ -91,6 +91,14 @@
 
   <div class="panel">
     <h2>统一记忆（canonical store）</h2>
+    <div class="chips" id="typeTabs" style="margin:0 0 10px;">
+      <button class="chip tabbtn" data-t="" style="background:var(--brand);color:#fff;border-color:var(--brand);">全部</button>
+      <button class="chip tabbtn" data-t="identity">身份</button>
+      <button class="chip tabbtn" data-t="preference">偏好</button>
+      <button class="chip tabbtn" data-t="project">项目</button>
+      <button class="chip tabbtn" data-t="context">背景</button>
+      <button class="chip tabbtn" data-t="fact">事实</button>
+    </div>
     <div class="addbar" id="addbar" style="display:none; margin-bottom:12px;">
       <input type="text" id="addInput" placeholder="写一条记忆，例如：用户偏好用 pnpm" />
       <select id="addType" style="width:130px;">
@@ -110,8 +118,14 @@
     <h2>从文本抽取记忆</h2>
     <div class="addbar" style="flex-wrap:wrap;">
       <textarea id="extractInput" rows="2" placeholder="粘贴一段对话/文本，例如：我叫小王，负责记忆层。我讨厌香菜，最近在学 Rust。" style="flex:1; min-width:260px;"></textarea>
-      <button class="primary" id="btnExtract">✨ 抽取并入库</button>
+      <button class="primary" id="btnExtract">✨ 抽取</button>
     </div>
+    <div id="extractPreview" style="display:none; margin-top:10px;"></div>
+  </div>
+
+  <div class="panel">
+    <h2>真实写回目标（自动探测）</h2>
+    <div id="writeTargets" class="log"><div class="empty">加载中…</div></div>
   </div>
 
   <div class="panel">
@@ -141,8 +155,22 @@ function log(msg, ok){ const el=document.getElementById('actLog'); const d=docum
 
 async function api(path, opts){ const r=await fetch(path, opts); return r.json(); }
 
+let currentTypeFilter = '';
+
 async function refresh(){
   const s = await api('/api/state');
+  // write targets（真实写回路径透明展示）
+  const wtEl=document.getElementById('writeTargets');
+  if(s.writeTargets){
+    wtEl.innerHTML='';
+    for(const [p, t] of Object.entries(s.writeTargets)){
+      const d=document.createElement('div'); d.className='syncitem';
+      const badge=t.explicit?'<b style="color:var(--amber)">[显式配置]</b>':(t.detected?'<b style="color:var(--green)">[自动探测]</b>':'<b style="color:var(--muted)">[未探测到]</b>');
+      d.innerHTML=`<b>${LABELS[p]||p}</b> ${badge} → <code>${t.file||'—'}</code>`;
+      wtEl.appendChild(d);
+    }
+    if(s.home){ const h=document.createElement('div'); h.className='syncitem'; h.style.color='var(--muted)'; h.textContent=`数据目录：${s.home}`; wtEl.appendChild(h); }
+  }
   // audit
   const a = await api('/api/audit?limit=20');
   const auditEl=document.getElementById('auditLog');
@@ -169,11 +197,13 @@ async function refresh(){
   const srcText=Object.keys(bySrc).map(k=>`${(LABELS[k]||k)} ${bySrc[k]}`).join(' · ')||'—';
   document.getElementById('stats').innerHTML=
     `<div><b>${s.stats.total}</b> 条记忆</div><div>来自 <b>${Object.keys(bySrc).length}</b> 个 Agent</div><div>${srcText}</div>`;
-  // list
+  // list（带类型筛选）
   const list=document.getElementById('memList'); list.innerHTML='';
   if(!s.memories.length){ list.innerHTML='<div class="empty">还没有记忆。点「一键导入」从各 Agent 聚合，或手动添加。</div>'; return; }
   const order={identity:0,preference:1,project:2,context:3,fact:4};
-  const sorted=[...s.memories].sort((a,b)=>(order[a.type]??9)-(order[b.type]??9));
+  let sorted=[...s.memories].sort((a,b)=>(order[a.type]??9)-(order[b.type]??9));
+  if(currentTypeFilter) sorted=sorted.filter(m=>m.type===currentTypeFilter);
+  if(!sorted.length){ list.innerHTML='<div class="empty">该分类暂无记忆。</div>'; return; }
   for(const m of sorted){
     const row=document.createElement('div'); row.className='mem';
     const srcs=m.source.split(',').map(x=>`<span class="tag src">${LABELS[x]||x}</span>`).join('');
@@ -265,13 +295,31 @@ document.getElementById('btnExtract').onclick=async()=>{
   const text=document.getElementById('extractInput').value.trim();
   if(!text){ toast('先粘贴一段文本'); return; }
   toast('正在抽取事实…');
-  const r=await api('/api/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, apply:true})});
-  const replaced=r.plan && r.plan.deletes ? r.plan.deletes : 0;
-  log(`从文本抽取 ${r.facts.length} 条记忆（替换 ${replaced} 条旧记忆）`, true);
-  for(const f of r.facts) log(`  [${typeLabel(f.type)}] ${f.content}`);
-  document.getElementById('extractInput').value='';
-  toast(`抽取 ${r.facts.length} 条`);
-  refresh();
+  // 先预览（不 apply），展示 plan
+  const r=await api('/api/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, apply:false})});
+  const box=document.getElementById('extractPreview');
+  box.style.display='block';
+  box.innerHTML='';
+  const h=document.createElement('div'); h.className='syncitem';
+  h.innerHTML=`<b>抽取到 ${r.facts.length} 条事实</b>（新增 ${r.plan.adds} / 替换 ${r.plan.deletes} / 待审 ${r.plan.needsReview}）— 点「确认入库」才写入`;
+  box.appendChild(h);
+  for(const f of r.facts){
+    const d=document.createElement('div'); d.className='syncitem';
+    d.innerHTML=`<span class="tag t-${f.type}">${typeLabel(f.type)}</span> ${escapeHtml(f.content)}`;
+    box.appendChild(d);
+  }
+  const confirmBtn=document.createElement('button'); confirmBtn.className='primary'; confirmBtn.textContent='✅ 确认入库';
+  confirmBtn.onclick=async()=>{
+    await api('/api/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, apply:true})});
+    document.getElementById('extractInput').value='';
+    box.style.display='none';
+    log(`从文本抽取 ${r.facts.length} 条并入库`, true);
+    toast('已入库'); refresh();
+  };
+  box.appendChild(confirmBtn);
+  const cancelBtn=document.createElement('button'); cancelBtn.style.marginLeft='8px'; cancelBtn.textContent='取消';
+  cancelBtn.onclick=()=>{ box.style.display='none'; };
+  box.appendChild(cancelBtn);
 };
 
 const addbar=document.getElementById('addbar');
@@ -284,6 +332,16 @@ document.getElementById('addConfirm').onclick=async()=>{
   document.getElementById('addInput').value=''; addbar.style.display='none';
   log('手动添加记忆',true); toast('已添加'); refresh();
 };
+
+// 类型筛选 tabs
+document.querySelectorAll('#typeTabs .tabbtn').forEach(btn=>{
+  btn.onclick=()=>{
+    currentTypeFilter=btn.dataset.t;
+    document.querySelectorAll('#typeTabs .tabbtn').forEach(b=>{ b.style.background=''; b.style.color=''; b.style.borderColor=''; });
+    if(currentTypeFilter){ btn.style.background='var(--brand)'; btn.style.color='#fff'; btn.style.borderColor='var(--brand)'; }
+    refresh();
+  };
+});
 
 refresh();
 </script>

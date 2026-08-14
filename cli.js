@@ -88,6 +88,37 @@ async function main() {
       log(content);
       return;
     }
+    case 'config': {
+      const action = process.argv[3]; // get | set
+      if (action === 'set') {
+        const key = process.argv[4];
+        const value = process.argv[5];
+        if (!key || value === undefined) { log('用法: memlocal config set <key> <value>（如 deepseek.apiKey sk-xxx、realTargets.claude ~/.claude/CLAUDE.md）'); return; }
+        const s = store.loadConfig();
+        const parts = key.split('.');
+        let cur = s;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+          cur = cur[parts[i]];
+        }
+        cur[parts[parts.length - 1]] = value;
+        store.saveConfig(s);
+        log(`已设置 ${key} = ${value}`);
+        return;
+      }
+      if (action === 'get') {
+        const key = process.argv[4];
+        const s = store.loadConfig();
+        if (!key) { log('当前配置：'); log(JSON.stringify(s, null, 2)); return; }
+        const parts = key.split('.');
+        let cur = s;
+        for (const p of parts) { if (cur && typeof cur === 'object') cur = cur[p]; else { cur = undefined; break; } }
+        log(key + ' = ' + (cur === undefined ? '(未设置)' : JSON.stringify(cur)));
+        return;
+      }
+      log('用法: memlocal config get [key] | set <key> <value>');
+      return;
+    }
     case 'audit': {
       const s = store.loadStore();
       const limit = parseInt(getArg('--limit') || '20', 10);
@@ -171,20 +202,32 @@ async function main() {
     }
     case 'reconcile': {
       const content = getArg('--content') || process.argv[3];
-      if (!content) { log('用法: node cli.js reconcile --content "..." [--apply] [--llm]'); return; }
+      if (!content) { log('用法: memlocal reconcile --content "..." [--apply] [--llm]'); return; }
       const apply = hasFlag('--apply');
       const changes = [{ content, source: 'manual', time: Date.now() }];
       const s = store.loadStore();
       if (hasFlag('--llm')) {
         const llmFn = llmMod.makeDeepSeekLLM({});
-        if (!llmFn) { log('未配置 DEEPSEEK_API_KEY，回退确定性对账'); }
+        if (!llmFn) { log('未配置 DEEPSEEK_API_KEY（或 config deepseek.apiKey），回退确定性对账'); }
         const plan = await reconcile.reconcileAsync(s, changes, { llmAsync: llmFn || undefined });
-        if (apply && llmFn) { reconcile.applyPlan(s, plan); store.saveStore(s); }
-        log(JSON.stringify(plan, null, 2));
+        if (apply && llmFn) {
+          reconcile.applyPlan(s, plan);
+          addAudit(s, { action: 'reconcile-llm', detail: `LLM 对账「${content.slice(0, 40)}」：新增 ${plan.adds.length} / 替换 ${plan.deletes.length}` });
+          store.saveStore(s);
+        }
+        log(`LLM 对账：add=${plan.adds.length}, delete=${plan.deletes.length}, needsReview=${plan.needsReview.length}`);
+        for (const r of plan.reasons) log(`  ${r.action}: ${r.content.slice(0, 40)}${r.reason ? '（' + r.reason + '）' : ''}`);
+        if (apply && llmFn) log('已应用（--apply）');
       } else {
         const plan = reconcile.reconcile(s, changes, { now: Date.now() });
-        if (apply) { reconcile.applyPlan(s, plan); store.saveStore(s); }
-        log(JSON.stringify(plan, null, 2));
+        if (apply) {
+          reconcile.applyPlan(s, plan);
+          addAudit(s, { action: 'reconcile', detail: `对账「${content.slice(0, 40)}」：新增 ${plan.adds.length} / 替换 ${plan.deletes.length}` });
+          store.saveStore(s);
+        }
+        log(`对账：add=${plan.adds.length}, delete=${plan.deletes.length}, needsReview=${plan.needsReview.length}`);
+        for (const r of plan.reasons) log(`  ${r.action}: ${r.content.slice(0, 40)}${r.reason ? '（' + r.reason + '）' : ''}`);
+        if (apply) log('已应用（--apply）');
       }
       return;
     }
@@ -230,6 +273,7 @@ async function main() {
       log('  memlocal search "<q>" [--limit N]     检索打分排序');
       log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
       log('  memlocal reflect [--apply]            反思/压缩零散事实');
+      log('  memlocal config get|set <key> <value> 查看/设置配置（deepseek.apiKey / realTargets.*）');
       log('  memlocal audit [--limit N]            查看记忆操作审计日志');
       log('  memlocal backup                       创建备份（压缩到 ~/.memlocal/backups/）');
       log('  memlocal backups                      列出可用备份');
