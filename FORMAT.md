@@ -54,8 +54,9 @@ Markdown 适配器规则：
 ## 3. 同步契约（幂等）
 
 - **导入**：解析各平台原生文件 → 归一 `content` → 与 store 去重（精确相同则 skip，矛盾则走对账）。
-- **同步**：从 store 渲染全部 9 平台格式 → 写回（默认沙箱 `~/.memlocal/writes/`；`--real` 自动探测各平台真实路径——已存在的真实配置文件优先更新，项目级路径可新建，绝不往用户主目录撒新文件）。
+- **同步**：从 store 渲染全部 9 平台格式 → 写回（默认沙箱 `~/.memlocal/writes/`；`--real` 自动探测各平台真实路径——已存在的真实配置文件优先更新，项目级路径可新建，绝不往用户主目录撒新文件；Cursor 命中 `.cursor/rules` 目录时写 `memlocal-memory.mdc`）。
 - **抽取**：从一段对话/文本自动抽出原子事实（`core/extract.js`，过滤提问/指令/语气词/临时日程），可选 LLM 增强。
+- **监听**：`memlocal watch` 检测各 agent 记忆文件变化（mtime+size），自动 `import` + `sync`。
 - **对账**：新事实进入时检测矛盾/更新（见 `core/reconcile.js`），返回 plan 由调用方决定 apply。
 
 ## 4. CLI 接口（一行命令同步）
@@ -67,10 +68,13 @@ memlocal serve                          # 启动 HTTP 服务（默认 :4173）
 memlocal import                         # 扫描 cwd + 用户主目录 + samples/，导入到 store
 memlocal sync [--dry-run] [--real] [--platforms p1,p2]   # 同步全部 9 平台（默认沙箱；--real 自动探测真实路径）
 memlocal extract --text "..." [--file F] [--llm] [--apply]  # 从文本抽取记忆
+memlocal watch [--interval N] [--real]  # 监听变化自动导入+同步
 memlocal export --platform claude       # 打印某平台渲染结果
 memlocal search "喜欢" [--limit 5]      # 检索打分排序
 memlocal reconcile --content "用户现在吃素了" [--apply]  # 提交新事实并对账
 memlocal reflect [--apply]              # 反思/压缩零散事实
+memlocal backup / backups / restore --file <备份>  # 备份恢复
+memlocal export-all                     # 导出全部记忆
 ```
 
 任何 code agent 只需 `memlocal import && memlocal sync --real` 即可完成跨应用记忆同步。

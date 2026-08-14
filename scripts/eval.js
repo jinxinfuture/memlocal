@@ -113,6 +113,35 @@ test('store 迁移(v1->v2)', () => {
   }
 });
 
+// 12. cursor .mdc 渲染：带 YAML frontmatter
+test('cursor mdc 渲染(frontmatter)', () => {
+  const { renderMdc } = require('../core/render');
+  const store = { memories: [N('a', '用户偏好用 TypeScript', { type: 'preference' })] };
+  const out = renderMdc(store, { name: 'x', globs: '**/*.ts' });
+  return { pass: out.startsWith('---\n') && out.includes('globs:') && out.includes('TypeScript'), detail: out.split('\n').slice(0, 5).join('|') };
+});
+
+// 13. watch 签名：snapshotSignatures 能检测文件变化
+test('watch 签名检测变化', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-eval-watch-'));
+  const fp = path.join(tmp, 'CLAUDE.md');
+  fs.writeFileSync(fp, '- a\n');
+  const oldHome = process.env.MEMLOCAL_HOME;
+  process.env.MEMLOCAL_HOME = tmp;
+  try {
+    const imp = require('../core/import');
+    const sig1 = imp.snapshotSignatures({ cwd: tmp, home: tmp });
+    const key = Object.keys(sig1).find(k => k.endsWith('CLAUDE.md'));
+    fs.writeFileSync(fp, '- a\n- b\n');
+    const sig2 = imp.snapshotSignatures({ cwd: tmp, home: tmp });
+    const changed = key && sig2[key] && (sig1[key].mtimeMs !== sig2[key].mtimeMs || sig1[key].size !== sig2[key].size);
+    return { pass: !!changed, detail: `key=${!!key}, size1=${key ? sig1[key].size : '-'}, size2=${key ? sig2[key].size : '-'}` };
+  } finally {
+    process.env.MEMLOCAL_HOME = oldHome;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // 运行
 let pass = 0;
 for (const c of CASES) {

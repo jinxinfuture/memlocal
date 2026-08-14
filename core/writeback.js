@@ -70,10 +70,18 @@ function applyWrites(store, opts = {}) {
     for (const platform of platforms) {
       const t = PLATFORM_TARGETS[platform];
       if (!t) continue;
-      const fp = detectRealLocation(platform, cfg, { cwd: opts.cwd });
-      if (!fp) continue;
+      const base = detectRealLocation(platform, cfg, { cwd: opts.cwd });
+      if (!base) continue;
+      // cursor 目录型目标 -> 写 .mdc；文件型目标 -> 直接写
+      let fp = base;
+      let content;
+      if (platform === 'cursor' && fs.existsSync(base) && fs.statSync(base).isDirectory()) {
+        fp = path.join(base, 'memlocal-memory.mdc');
+        content = renderFor(store, 'cursor', { mdc: true });
+      } else {
+        content = renderFor(store, platform);
+      }
       detected[platform] = fp;
-      const content = renderFor(store, platform);
       wouldWrite.push({ platform, file: fp, bytes: Buffer.byteLength(content), real: true });
       if (dryRun) continue;
       fs.mkdirSync(path.dirname(fp), { recursive: true });

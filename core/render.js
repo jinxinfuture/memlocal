@@ -93,12 +93,41 @@ function renderChatGPT(store) {
   return JSON.stringify({ memories }, null, 2);
 }
 
+// Cursor 规则 .mdc 格式（带 YAML frontmatter）：写回 .cursor/rules/ 下的文件时使用
+function renderMdc(store, opts = {}) {
+  const name = opts.name || 'memlocal-memory';
+  const globs = opts.globs || '**/*';
+  const lists = { identity: [], preference: [], project: [], context: [], fact: [], summary: [] };
+  for (const m of store.memories) {
+    if (m.archived) continue;
+    const arr = lists[m.type] || lists.fact;
+    arr.push(`- ${m.content}`);
+  }
+  const frontmatter = `---
+description: MemLocal 统一记忆（自动生成，请勿手改）
+globs: ${JSON.stringify(globs)}
+alwaysApply: false
+---
+
+# MemLocal 记忆规则
+
+`;
+  let body = '';
+  for (const t of TYPE_ORDER) {
+    if (lists[t].length) {
+      body += `\n## ${TYPE_TITLE[t]}\n` + lists[t].join('\n') + '\n';
+    }
+  }
+  return frontmatter + (body || '- 暂无记忆\n');
+}
+
 // 按需检索：只导出与 query 相关的条目（避免整文档注入导致长上下文退化）
 function renderFor(store, platform, opts = {}) {
   const t = PLATFORM_TARGETS[platform];
   if (!t) return renderMarkdown(store, 'generic');
   if (t.format === 'json') return renderChatGPT(store);
+  if (opts.mdc) return renderMdc(store, opts);
   return renderMarkdown(store, platform);
 }
 
-module.exports = { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, renderFor, headerFor, TYPE_ORDER, TYPE_TITLE, expandRealLocation, detectRealLocation };
+module.exports = { PLATFORM_TARGETS, renderMarkdown, renderMdc, renderChatGPT, renderFor, headerFor, TYPE_ORDER, TYPE_TITLE, expandRealLocation, detectRealLocation };

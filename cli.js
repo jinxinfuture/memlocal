@@ -81,6 +81,35 @@ async function main() {
       }
       return;
     }
+    case 'watch': {
+      const interval = parseInt(getArg('--interval') || '10', 10) * 1000;
+      const real = hasFlag('--real');
+      log(`MemLocal watch 已启动（每 ${interval / 1000}s 检测一次，${real ? '真实写回' : '沙箱写回'}）。Ctrl+C 停止。`);
+      let prev = imp.snapshotSignatures();
+      const tick = async () => {
+        const cur = imp.snapshotSignatures();
+        const changed = Object.keys(cur).filter(f => {
+          const p = prev[f];
+          return !p || p.mtimeMs !== cur[f].mtimeMs || p.size !== cur[f].size;
+        });
+        const removed = Object.keys(prev).filter(f => !cur[f]);
+        if (changed.length || removed.length) {
+          log(`[${new Date().toLocaleTimeString()}] 检测到变化：新增/修改 ${changed.length} 个，移除 ${removed.length} 个`);
+          for (const f of changed) log(`  ~ ${f}`);
+          try {
+            const r = imp.doImport();
+            log(`  导入完成：新增 ${r.summary.imported} 条，跳过 ${r.summary.skipped} 条`);
+            const w = writeback.applyWrites(store.loadStore(), { real, cwd: process.cwd() });
+            log(`  同步完成：${w.written.length} 个文件${real ? '（真实）' : '（沙箱）'}`);
+          } catch (e) {
+            log('  同步出错：' + (e && e.message));
+          }
+          prev = imp.snapshotSignatures();
+        }
+      };
+      setInterval(tick, interval);
+      return;
+    }
     case 'export': {
       const platform = getArg('--platform') || 'generic';
       const s = store.loadStore();
@@ -279,6 +308,7 @@ async function main() {
       log('  memlocal backups                      列出可用备份');
       log('  memlocal restore --file <备份>         从备份恢复（当前状态先另存安全备份）');
       log('  memlocal export-all                   导出记忆（合并 Markdown + 原始 JSON）');
+      log('  memlocal watch [--interval N] [--real]  监听各 agent 记忆文件变化，自动导入+同步');
       log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   }
 }

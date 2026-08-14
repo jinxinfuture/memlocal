@@ -176,6 +176,22 @@ function doImport(opts = {}) {
   return { summary: r.summary, candidates: r.candidates.map(c => ({ platform: c.platform, label: c.label, file: c.file })) };
 }
 
+/**
+ * 计算各候选记忆文件的签名（path + mtimeMs + size），供 watch 模式检测变化
+ * @returns {object} { [filePath]: {mtimeMs, size} }
+ */
+function snapshotSignatures(opts = {}) {
+  const candidates = scanCandidates(opts);
+  const sig = {};
+  for (const c of candidates) {
+    try {
+      const st = fs.statSync(c.file);
+      sig[c.file] = { mtimeMs: st.mtimeMs, size: st.size };
+    } catch (e) { /* 文件可能被删除 */ }
+  }
+  return sig;
+}
+
 function doSync(opts = {}) {
   const store = loadStore();
   const written = [];
@@ -193,4 +209,4 @@ function doSync(opts = {}) {
   return { written };
 }
 
-module.exports = { PLATFORMS, normalizeKey, inferType, parseMarkdown, parseMdc, parseChatGPT, parsePlatform, scanCandidates, runImport, doImport, doSync };
+module.exports = { PLATFORMS, normalizeKey, inferType, parseMarkdown, parseMdc, parseChatGPT, parsePlatform, scanCandidates, runImport, doImport, doSync, snapshotSignatures };

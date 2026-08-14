@@ -77,8 +77,10 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | `memlocal reconcile --content "..." [--apply] [--llm]` | 提交新事实并对账（可选 LLM 增强） |
 | `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要（智能遗忘） |
 | `memlocal audit [--limit N]` | 查看记忆操作审计日志（透明可控） |
+| `memlocal config get\|set <key> <value>` | 查看/设置配置（如 `deepseek.apiKey sk-xxx`、`realTargets.claude ~/.claude/CLAUDE.md`） |
 | `memlocal backup` / `backups` / `restore --file <备份>` | 创建 / 列出 / 恢复备份（gzip 压缩到 `~/.memlocal/backups/`，恢复前自动另存安全备份） |
 | `memlocal export-all` | 导出全部记忆（合并 Markdown + 原始 JSON，可迁移到其它工具） |
+| `memlocal watch [--interval N] [--real]` | 监听各 agent 记忆文件变化，自动导入 + 同步（Ctrl+C 停止） |
 | `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」+ 搜索 + 真实写回预览） |
 | `memlocal status` | 查看 store 统计、已支持 agent、真实写回配置 |
 
@@ -106,6 +108,10 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | Copilot | 项目 `.github/copilot-instructions.md` |
 
 **安全策略**：已存在的真实配置文件会被更新；`~` 开头的候选**只在文件已存在时**命中（绝不往用户主目录撒新文件）；项目级候选（`{cwd}`）父目录存在即可新建。显式 `config set <平台> <路径>` 始终优先于自动探测。
+
+**Cursor 特殊处理**：当探测到 `.cursor/rules` 目录时，写回生成 `memlocal-memory.mdc`（带 YAML frontmatter 的 Cursor 原生规则格式），而非 `.cursorrules`。
+
+**自动同步**：`memlocal watch` 监听各 agent 记忆文件变化，检测到修改自动 `import` + `sync`，让「agent 改了记忆 → 自动聚合 → 自动写回所有平台」成为常驻流程。
 
 ## 架构
 
