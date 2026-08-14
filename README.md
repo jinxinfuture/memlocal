@@ -12,6 +12,8 @@ Claude Code / Cursor / Windsurf / Codex / Gemini / Aider / GitHub Copilot / Chat
 
 > 设计原则：**别在单个代码平台的院子里种菜，去种连接所有院子的那条路。**
 
+**文档**：[使用教程](docs/usage.md) · [架构详解](docs/architecture.md) · [记忆 vs 文档](docs/design-memory-vs-document.md) · [性能基准](docs/bench.md) · [开放格式](FORMAT.md)
+
 ---
 
 ## 为什么是它（护城河）

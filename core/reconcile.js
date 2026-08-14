@@ -170,6 +170,13 @@ async function reconcileAsync(store, changes, opts = {}) {
   const llm = opts.llmAsync || null; // async (exMem, incoming) => {winner,confidence,reason} | null
   const adds = [], deletes = [], needsReview = [], reasons = [];
   const existing = store.memories || [];
+  const cache = makeFeatureCache();
+  const exactIndex = new Map();
+  for (const m of existing) {
+    if (m.stale) continue;
+    const k = cache.norm(m.content);
+    if (!exactIndex.has(k)) exactIndex.set(k, m);
+  }
 
   for (const ch of changes) {
     const content = (ch.content || '').trim();
@@ -177,10 +184,10 @@ async function reconcileAsync(store, changes, opts = {}) {
     const time = ch.time != null ? ch.time : now;
     const source = ch.source || 'manual';
 
-    const exact = existing.find(m => !m.stale && normalize(m.content) === normalize(content));
+    const exact = exactIndex.get(cache.norm(content));
     if (exact) { reasons.push({ content, action: 'skip-exact', id: exact.id }); continue; }
 
-    const conflicts = detectConflicts(existing, content);
+    const conflicts = detectConflicts(existing, content, cache);
     if (conflicts.length === 0) {
       const conf = sourceWeight(source);
       if (conf < confThresh) {
@@ -188,7 +195,9 @@ async function reconcileAsync(store, changes, opts = {}) {
         reasons.push({ content, action: 'needsReview' });
         continue;
       }
-      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      adds.push(mem);
+      exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'add', confidence: conf });
       continue;
     }
@@ -217,7 +226,9 @@ async function reconcileAsync(store, changes, opts = {}) {
         continue;
       }
       for (const c of conflicts) deletes.push({ id: c.existingId, reason: 'superseded-by-incoming', relation: c.relation });
-      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      adds.push(mem);
+      exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'replace', replaces: conflicts.map(c => c.existingId), relation: conflicts[0].relation, confidence: conf, reason: decision.reason });
     } else {
       needsReview.push({ content, source, conflicts, suggested: 'skip', reason: 'existing-wins' });
@@ -228,17 +239,73 @@ async function reconcileAsync(store, changes, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 冲突检测
+// 冲突检测（带一次性预计算缓存，避免大规模下 O(N×M×分词) 重复开销）
 // ---------------------------------------------------------------------------
-function detectConflicts(memories, incomingContent) {
+function detectConflicts(memories, incomingContent, cache = null) {
   const conflicts = [];
+  const incNorm = cache ? cache.norm(incomingContent) : normalize(incomingContent);
+  const incKeywords = cache ? cache.keywords(incomingContent) : keywordsOf(incomingContent);
+  const incEntities = cache ? cache.entities(incomingContent) : entitiesOf(incomingContent);
+  const incDomain = cache ? cache.domain(incomingContent) : domainOf(incomingContent);
   for (const m of memories) {
     if (m.stale) continue;
-    if (normalize(m.content) === normalize(incomingContent)) continue; // 精确重复交给 import
-    const rel = relationOf(m.content, incomingContent);
+    const mNorm = cache ? cache.norm(m.content) : normalize(m.content);
+    if (mNorm === incNorm) continue; // 精确重复交给 import
+    const rel = relationCached(m.content, incomingContent, cache, { incNorm, incKeywords, incEntities, incDomain });
     if (rel) conflicts.push({ existingId: m.id, existingContent: m.content, relation: rel });
   }
   return conflicts;
+}
+
+// relationOf 的缓存版本：预计算 incoming 侧特征，只对每条 m 算一次 m 侧特征
+function relationCached(a, b, cache, incoming = {}) {
+  const pa = cache ? cache.polarity(a) : polarityOf(a);
+  const pb = cache ? cache.polarity(b) : polarityOf(b);
+  const ka = cache ? cache.keywords(a) : keywordsOf(a);
+  const kb = incoming.incKeywords;
+  let overlap = false;
+  // 小集合交集：选更小的迭代
+  const [small, big] = ka.size <= kb.size ? [ka, kb] : [kb, ka];
+  for (const k of small) if (big.has(k)) { overlap = true; break; }
+
+  const da = cache ? cache.domain(a) : domainOf(a);
+  const db = incoming.incDomain;
+  const sameDomain = da && da === db;
+
+  if (pa !== 0 && pb !== 0 && pa * pb < 0) {
+    if (overlap && (hasReversal(a) || hasReversal(b))) return 'update';
+    if (overlap) return 'contradiction';
+    if (sameDomain) {
+      const aSide = da.pos.some(w => a.includes(w)) ? 'pos' : da.neg.some(w => a.includes(w)) ? 'neg' : null;
+      const bSide = db.pos.some(w => b.includes(w)) ? 'pos' : db.neg.some(w => b.includes(w)) ? 'neg' : null;
+      if (aSide && bSide && aSide !== bSide) return 'contradiction';
+    }
+  }
+
+  if (overlap && (hasReversal(a) || hasReversal(b))) return 'update';
+
+  // 实体切换：incoming 侧预计算，m 侧只查一次
+  if (incoming.incEntities && incoming.incEntities.length) {
+    const em = cache ? cache.entities(a) : entitiesOf(a);
+    const mapA = new Map(em.map(e => [e.dim, e.member]));
+    for (const e of incoming.incEntities) {
+      if (mapA.has(e.dim) && mapA.get(e.dim) !== e.member) return 'update';
+    }
+  }
+
+  return null;
+}
+
+// 轻量缓存：单次 reconcile 内复用 normalize/keywords/polarity/domain/entities 结果
+function makeFeatureCache() {
+  const normMap = new Map(), kwMap = new Map(), polMap = new Map(), domMap = new Map(), entMap = new Map();
+  return {
+    norm: (s) => { let v = normMap.get(s); if (v === undefined) { v = normalize(s); normMap.set(s, v); } return v; },
+    keywords: (s) => { let v = kwMap.get(s); if (!v) { v = keywordsOf(s); kwMap.set(s, v); } return v; },
+    polarity: (s) => { let v = polMap.get(s); if (v === undefined) { v = polarityOf(s); polMap.set(s, v); } return v; },
+    domain: (s) => { let v = domMap.get(s); if (v === undefined) { v = domainOf(s); domMap.set(s, v); } return v; },
+    entities: (s) => { let v = entMap.get(s); if (!v) { v = entitiesOf(s); entMap.set(s, v); } return v; },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +330,13 @@ function reconcile(store, changes, opts = {}) {
   const llm = opts.llm || null;
   const adds = [], deletes = [], needsReview = [], reasons = [];
   const existing = store.memories || [];
+  const cache = makeFeatureCache();
+  const exactIndex = new Map();
+  for (const m of existing) {
+    if (m.stale) continue;
+    const k = cache.norm(m.content);
+    if (!exactIndex.has(k)) exactIndex.set(k, m);
+  }
 
   for (const ch of changes) {
     const content = (ch.content || '').trim();
@@ -270,11 +344,11 @@ function reconcile(store, changes, opts = {}) {
     const time = ch.time != null ? ch.time : now;
     const source = ch.source || 'manual';
 
-    // 精确重复
-    const exact = existing.find(m => !m.stale && normalize(m.content) === normalize(content));
+    // 精确重复（Map 索引 O(1)）
+    const exact = exactIndex.get(cache.norm(content));
     if (exact) { reasons.push({ content, action: 'skip-exact', id: exact.id }); continue; }
 
-    const conflicts = detectConflicts(existing, content);
+    const conflicts = detectConflicts(existing, content, cache);
     if (conflicts.length === 0) {
       const conf = sourceWeight(source);
       if (conf < confThresh) {
@@ -282,7 +356,9 @@ function reconcile(store, changes, opts = {}) {
         reasons.push({ content, action: 'needsReview' });
         continue;
       }
-      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      adds.push(mem);
+      exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'add', confidence: conf });
       continue;
     }
@@ -312,7 +388,9 @@ function reconcile(store, changes, opts = {}) {
         continue;
       }
       for (const c of conflicts) deletes.push({ id: c.existingId, reason: 'superseded-by-incoming', relation: c.relation });
-      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      adds.push(mem);
+      exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'replace', replaces: conflicts.map(c => c.existingId), relation: conflicts[0].relation, confidence: conf, reason: decision.reason });
     } else {
       needsReview.push({ content, source, conflicts, suggested: 'skip', reason: 'existing-wins' });
@@ -333,4 +411,4 @@ function applyPlan(store, plan) {
   return store;
 }
 
-module.exports = { reconcile, reconcileAsync, applyPlan, detectConflicts, relationOf, polarityOf, keywordsOf, domainOf, entitiesOf, entitySwitchOf, sourceWeight };
+module.exports = { reconcile, reconcileAsync, applyPlan, detectConflicts, relationOf, polarityOf, keywordsOf, domainOf, entitiesOf, entitySwitchOf, sourceWeight, makeFeatureCache, relationCached };
