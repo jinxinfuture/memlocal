@@ -8,6 +8,7 @@
  */
 
 const store = require('./core/store');
+const path = require('path');
 const imp = require('./core/import');
 const reconcile = require('./core/reconcile');
 const retrieve = require('./core/retrieve');
@@ -15,6 +16,7 @@ const reflect = require('./core/reflect');
 const writeback = require('./core/writeback');
 const llmMod = require('./core/llm');
 const extractMod = require('./core/extract');
+const backupMod = require('./core/backup');
 const { renderFor } = require('./core/render');
 const { addAudit } = store;
 
@@ -94,6 +96,41 @@ async function main() {
       for (const r of rows) {
         log(`  ${new Date(r.at).toLocaleString()}  [${r.action}] ${r.detail}`);
       }
+      return;
+    }
+    case 'backup': {
+      const fp = backupMod.createBackup();
+      const s = store.loadStore();
+      addAudit(s, { action: 'backup', detail: `创建备份 ${path.basename(fp)}` });
+      store.saveStore(s);
+      log('备份已创建：' + fp);
+      return;
+    }
+    case 'backups': {
+      const list = backupMod.listBackups();
+      if (!list.length) { log('（暂无备份）'); return; }
+      log('可用备份：');
+      for (const b of list) log(`  ${path.basename(b.file)}  ${(b.size / 1024).toFixed(1)}kB  ${new Date(b.time).toLocaleString()}`);
+      return;
+    }
+    case 'restore': {
+      const file = getArg('--file');
+      const list = backupMod.listBackups();
+      if (!file && list.length) {
+        log('用法: memlocal restore --file <备份文件>');
+        log('最近备份：');
+        for (const b of list.slice(0, 5)) log(`  ${b.file}`);
+        return;
+      }
+      const ok = backupMod.restoreBackup(file);
+      log(ok ? '恢复完成（当前状态已另存为安全备份）。' : '恢复失败：文件不存在或格式非法。');
+      return;
+    }
+    case 'export-all': {
+      const r = backupMod.exportAll();
+      log(`导出完成：${r.total} 条记忆`);
+      log('  Markdown: ' + r.mdFile);
+      log('  JSON:     ' + r.jsonFile);
       return;
     }
     case 'extract': {
@@ -194,6 +231,10 @@ async function main() {
       log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
       log('  memlocal reflect [--apply]            反思/压缩零散事实');
       log('  memlocal audit [--limit N]            查看记忆操作审计日志');
+      log('  memlocal backup                       创建备份（压缩到 ~/.memlocal/backups/）');
+      log('  memlocal backups                      列出可用备份');
+      log('  memlocal restore --file <备份>         从备份恢复（当前状态先另存安全备份）');
+      log('  memlocal export-all                   导出记忆（合并 Markdown + 原始 JSON）');
       log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   }
 }

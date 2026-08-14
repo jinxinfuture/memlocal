@@ -30,6 +30,27 @@ npm install -g memlocal      # 或临时用：npx memlocal
 
 零外部依赖，纯 Node 内置模块（Node ≥ 18）。
 
+### 从源码运行（开发 / 未发布时）
+
+```bash
+git clone https://github.com/jinxinfuture/memlocal.git
+cd memlocal
+npm test                     # 先跑测试（4 套，全绿）
+node cli.js init             # 或 npm run memlocal -- init
+node cli.js import && node cli.js sync --real
+node cli.js serve            # Web 面板 :4173
+```
+
+### 发布到 npm（维护者）
+
+```bash
+npm test                     # 发布前自检（prepublishOnly 也会跑）
+npm login                    # 首次需登录 npm
+npm publish                  # 发 memlocal@x.y.z
+```
+
+发布前建议 `npm pack --dry-run` 检查 tarball 内容（应含 cli.js / core/ / public/ / samples/ / 文档，不含 data/ 与 exports/）。
+
 ## 一行命令同步
 
 ```bash
@@ -56,6 +77,8 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | `memlocal reconcile --content "..." [--apply] [--llm]` | 提交新事实并对账（可选 LLM 增强） |
 | `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要（智能遗忘） |
 | `memlocal audit [--limit N]` | 查看记忆操作审计日志（透明可控） |
+| `memlocal backup` / `backups` / `restore --file <备份>` | 创建 / 列出 / 恢复备份（gzip 压缩到 `~/.memlocal/backups/`，恢复前自动另存安全备份） |
+| `memlocal export-all` | 导出全部记忆（合并 Markdown + 原始 JSON，可迁移到其它工具） |
 | `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」+ 搜索 + 真实写回预览） |
 | `memlocal status` | 查看 store 统计、已支持 agent、真实写回配置 |
 
@@ -94,7 +117,8 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 - `core/retrieve.js` — 检索打分（`recency × importance × relevance`）
 - `core/reflect.js` — 反思 / 压缩（智能遗忘）
 - `core/writeback.js` — 真实写回适配器（沙箱 / 自动探测真实路径 + 自动备份）
-- `cli.js` — 一行命令同步（含 init/status/audit）
+- `core/backup.js` — 备份 / 恢复 / 导出（gzip 压缩，用户拥有数据可迁移）
+- `cli.js` — 一行命令同步（含 init/status/audit/backup/restore/export-all）
 - `server.js` + `public/index.html` — Web 面板（搜索 / 抽取 / 审计 / 真实写回预览）
 - `samples/` — 各 agent 的样例记忆文件（demo 用）
 - `FORMAT.md` — **开放格式标准**（任何 agent 都能接入）

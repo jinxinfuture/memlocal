@@ -6,9 +6,10 @@
  * 把 canonical 记忆渲染后写回目标路径。
  *
  * 安全模型（默认不碰个人文件）：
- *   - 默认目标目录 = <memlocal>/data/writes/（项目内沙箱，进 .gitignore，不污染个人配置）
- *   - 「真实写回各 agent 配置路径」需显式开启：opts.real=true 且 data/config.json 里
- *     realTargets 配置了目标路径。默认 realTargets 为空 => 真实模式也不会动任何个人文件。
+ *   - 默认目标目录 = ~/.memlocal/writes/（沙箱，不污染个人配置）
+ *   - 「真实写回各 agent 配置路径」= sync --real / writeback --real：自动探测各平台
+ *     真实记忆位置（detectRealLocation：config.realTargets 显式 > 已存在配置 > 项目级候选），
+ *     探测不到的平台跳过，绝不写进任意路径。
  *   - 覆盖前自动备份（.bak），可用 listBackups / restore 回滚。
  *   - dryRun=true 只列出将要写的内容，不落盘。
  */
