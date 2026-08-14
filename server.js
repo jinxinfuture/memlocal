@@ -10,12 +10,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const reconcile = require('./core/reconcile');
-const { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, renderFor, detectRealLocation } = require('./core/render');
+const { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, detectRealLocation } = require('./core/render');
 const storeMod = require('./core/store');
 const { loadStore, saveStore, addAudit } = storeMod;
 const imp = require('./core/import');
 const PLATFORMS = imp.PLATFORMS;
-const { normalizeKey, inferType, parsePlatform, scanCandidates, doImport, doSync } = imp;
+const { inferType, doImport } = imp;
 const retrieve = require('./core/retrieve');
 const reflect = require('./core/reflect');
 const writeback = require('./core/writeback');
@@ -23,9 +23,6 @@ const llmMod = require('./core/llm');
 const extractMod = require('./core/extract');
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
-const EXPORTS_DIR = path.join(ROOT, 'exports');
-const SAMPLES_DIR = path.join(ROOT, 'samples');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 
 const PORT = 4173;
@@ -88,7 +85,16 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, r);
       }
       if (p === '/api/sync' && req.method === 'POST') {
-        const r = doSync();
+        const body = await readBody(req);
+        // 与 CLI `memlocal sync` 行为一致：沙箱写 ~/.memlocal/writes/，可选 real/dry-run/platforms
+        const r = writeback.applyWrites(loadStore(), {
+          real: !!body.real, dryRun: !!body.dryRun, platforms: body.platforms, cwd: process.cwd(),
+        });
+        if (!body.dryRun && r.written.length) {
+          const s = loadStore();
+          addAudit(s, { action: body.real ? 'sync-real' : 'sync', detail: `写回 ${r.written.length} 个平台${body.real ? '（真实路径）' : '（沙箱）'}，备份 ${r.backups.length}` });
+          saveStore(s);
+        }
         return sendJSON(res, 200, r);
       }
       if (p === '/api/extract' && req.method === 'POST') {

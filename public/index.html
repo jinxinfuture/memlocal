@@ -192,11 +192,13 @@ async function refresh(){
     c.textContent=(on?'● ':'○ ')+(LABELS[p]||p);
     chips.appendChild(c);
   }
-  // stats
+  // stats（含上次同步/导入时间）
   const bySrc=s.stats.bySource||{};
   const srcText=Object.keys(bySrc).map(k=>`${(LABELS[k]||k)} ${bySrc[k]}`).join(' · ')||'—';
+  const fmt = (ts) => ts ? new Date(ts).toLocaleTimeString() : '—';
   document.getElementById('stats').innerHTML=
-    `<div><b>${s.stats.total}</b> 条记忆</div><div>来自 <b>${Object.keys(bySrc).length}</b> 个 Agent</div><div>${srcText}</div>`;
+    `<div><b>${s.stats.total}</b> 条记忆</div><div>来自 <b>${Object.keys(bySrc).length}</b> 个 Agent</div><div>${srcText}</div>`+
+    `<div style="font-size:12px;color:var(--muted);margin-left:auto;">上次导入 ${fmt(s.lastImport)} · 上次同步 ${fmt(s.lastSync)}</div>`;
   // list（带类型筛选）
   const list=document.getElementById('memList'); list.innerHTML='';
   if(!s.memories.length){ list.innerHTML='<div class="empty">还没有记忆。点「一键导入」从各 Agent 聚合，或手动添加。</div>'; return; }
