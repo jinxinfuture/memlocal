@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/jinxinfuture/memlocal/actions/workflows/ci.yml/badge.svg)](https://github.com/jinxinfuture/memlocal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[English](README.en.md)
 
 **让所有 code agent 共享同一份属于你、本地优先的公用记忆。**
 

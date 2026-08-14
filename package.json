@@ -7,7 +7,7 @@
   },
   "main": "cli.js",
   "scripts": {
-    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js && node scripts/test-writeback.js",
+    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js && node scripts/test-writeback.js && node scripts/smoke-cli.js",
     "serve": "node server.js",
     "memlocal": "node cli.js",
     "prepublishOnly": "npm test"
@@ -22,6 +22,8 @@
     "FORMAT.md",
     "GOALS.md",
     "README.md",
+    "README.en.md",
+    "AGENTS.md",
     "LICENSE"
   ],
   "keywords": [
