@@ -111,5 +111,32 @@ console.log('\n[9] llm.js extractJSON 容错：markdown 包裹 / 前后杂文本
   check('空输入返回 null', extractJSON('') === null);
 }
 
+console.log('\n[10] CLAUDE.local.md 写回：仅 local 文件存在时优先命中它（项目 CLAUDE.md 仍兜底）');
+{
+  const fs = require('fs');
+  const realClaudeDir = path.join(os.homedir(), '.claude');
+  const localFile = path.join(realClaudeDir, 'CLAUDE.local.md');
+  const mdFile = path.join(realClaudeDir, 'CLAUDE.md');
+  const localExisted = fs.existsSync(localFile);
+  const mdExisted = fs.existsSync(mdFile);
+  try {
+    fs.mkdirSync(realClaudeDir, { recursive: true });
+    // 场景 A：只有 CLAUDE.local.md 存在 -> 命中它
+    fs.writeFileSync(localFile, '# local\n');
+    if (mdExisted) fs.renameSync(mdFile, mdFile + '.tmp');
+    const locA = detectRealLocation('claude', {}, { cwd: '/tmp/x' });
+    check('仅 local 存在时命中 local', locA === localFile);
+    // 场景 B：CLAUDE.md 也存在 -> 按探测顺序仍先命中 CLAUDE.md（标准文件优先）
+    fs.writeFileSync(mdFile, '# main\n');
+    const locB = detectRealLocation('claude', {}, { cwd: '/tmp/x' });
+    check('CLAUDE.md 存在时优先它', locB === mdFile);
+  } finally {
+    try { fs.unlinkSync(localFile); } catch (e) {}
+    try { fs.unlinkSync(mdFile); } catch (e) {}
+    if (mdExisted && fs.existsSync(mdFile + '.tmp')) fs.renameSync(mdFile + '.tmp', mdFile);
+    if (!localExisted && !mdExisted) { try { fs.rmdirSync(realClaudeDir); } catch (e) {} }
+  }
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail === 0 ? 0 : 1);

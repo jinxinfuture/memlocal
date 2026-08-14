@@ -97,7 +97,7 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 
 | 平台 | 探测候选（按优先级） |
 |------|------|
-| Claude Code | `~/.claude/CLAUDE.md` → `~/.claude/CLAUDE.local.md` → 项目 `CLAUDE.md` → `AGENTS.md` |
+| Claude Code | `~/.claude/CLAUDE.md` → `~/.claude/CLAUDE.local.md`（本地覆盖记忆）→ 项目 `CLAUDE.md` → `CLAUDE.local.md` |
 | Cursor | 项目 `.cursor/rules` → `.cursorrules` → `~/.cursor/rules` |
 | Windsurf | 项目 `.windsurfrules` → `~/.codeium/windsurf/.windsurfrules` |
 | ChatGPT | 项目 `memory.json` |
@@ -136,9 +136,10 @@ MemLocal 把「记忆」定义成一份开放 JSON 规范（`FORMAT.md`），任
 
 ## 质量保障
 
-- `npm test` 跑四套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark，含抽取/迁移）+ `scripts/test-reconcile.js`（对账）+ `scripts/test-extract.js`（抽取 / 路径探测 / 注册表统一）+ `scripts/test-store.js`（版本迁移 / 损坏恢复 / 审计），CI 全绿。
+- `npm test` 跑五套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark，含抽取/迁移/mdc/watch）+ `scripts/test-reconcile.js`（对账）+ `scripts/test-extract.js`（抽取 / 路径探测 / 注册表统一 / LLM 容错）+ `scripts/test-store.js`（版本迁移 / 损坏恢复 / 审计）+ `scripts/test-writeback.js`（沙箱 / 真实探测 / 备份 / cursor .mdc / 安全策略），CI 全绿。
 - 对账 / 压缩 / 抽取均返回 plan，由调用方决定是否 apply；写回前自动备份——可审计、可回滚。
-- `npm pack` 发布内容已验证（24 个文件，含 cli/core/public/samples/文档），`npm install -g` 后 `memlocal` 命令可用。
+- `npm pack` 发布内容已验证（含 cli/core/public/samples/文档），`npm install -g` 后 `memlocal` 命令可用。
+- `samples/` 覆盖全部 9 平台样例，`memlocal import` 演示可聚合 9 个来源（33 条样例记忆）。
 
 ## License
 

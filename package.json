@@ -7,7 +7,7 @@
   },
   "main": "cli.js",
   "scripts": {
-    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js",
+    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js && node scripts/test-writeback.js",
     "serve": "node server.js",
     "memlocal": "node cli.js",
     "prepublishOnly": "npm test"

@@ -92,14 +92,32 @@ function scanCandidates(opts = {}) {
   if (opts.cwd) bases.push(opts.cwd);
   if (opts.home) bases.push(opts.home);
   if (Array.isArray(opts.extraDirs)) bases.push(...opts.extraDirs);
-  if (!opts.cwd && !opts.home && !opts.extraDirs) {
+  const explicit = !!(opts.cwd || opts.home || opts.extraDirs);
+  if (!explicit) {
     bases.push(process.cwd(), os.homedir());
+    if (fs.existsSync(SAMPLES_DIR)) bases.push(SAMPLES_DIR); // 仅默认模式扫样例（demo 用）
   }
-  if (fs.existsSync(SAMPLES_DIR)) bases.push(SAMPLES_DIR);
 
   const found = [];
+  const isSamples = (b) => b === SAMPLES_DIR;
   for (const base of bases) {
     for (const [platform, cfg] of Object.entries(PLATFORM_TARGETS)) {
+      // samples 目录：按 samples/<platform>/<locations相对路径> 精确扫描（含 .github 子路径）
+      if (isSamples(base)) {
+        for (const loc of (cfg.locations || [cfg.filename])) {
+          const fp = path.join(base, platform, loc);
+          let stat = null;
+          try { stat = fs.statSync(fp); } catch (e) { continue; }
+          if (stat.isDirectory()) {
+            let files = [];
+            try { files = fs.readdirSync(fp).filter(n => n.endsWith('.mdc') || n.endsWith('.md')); } catch (e) {}
+            for (const f of files) found.push({ platform, dir: fp, file: path.join(fp, f), label: cfg.label });
+          } else if (stat.isFile()) {
+            found.push({ platform, dir: base, file: fp, label: cfg.label });
+          }
+        }
+        continue;
+      }
       // 1) locations 相对路径（文件或目录，如 .cursor/rules 目录下的 .mdc/.md）
       for (const loc of (cfg.locations || [cfg.filename])) {
         const fp = path.join(base, loc);
@@ -113,7 +131,7 @@ function scanCandidates(opts = {}) {
           found.push({ platform, dir: base, file: fp, label: cfg.label });
         }
       }
-      // 2) 嵌套子目录布局（samples/<platform>/<file>、project/.claude/CLAUDE.md）
+      // 2) 嵌套子目录布局（project/.claude/CLAUDE.md）
       const nested = path.join(base, cfg.dir, cfg.filename);
       if (nested !== path.join(base, cfg.filename)) {
         try { if (fs.statSync(nested).isFile()) found.push({ platform, dir: base, file: nested, label: cfg.label }); } catch (e) {}

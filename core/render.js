@@ -13,7 +13,7 @@
 // realLocations: 真实写回时自动探测的候选路径（~ 展开为用户主目录，{cwd} 展开为当前工作目录）。
 //   按顺序探测：第一个「已存在」的路径胜出；都探测不到则取第一个父目录可写的路径，保证 sync --real 零配置可用。
 const PLATFORM_TARGETS = {
-  claude:   { label: 'Claude Code',    filename: 'CLAUDE.md',               dir: 'claude',   format: 'md',   locations: ['CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md'], realLocations: ['~/.claude/CLAUDE.md', '~/.claude/CLAUDE.local.md', '{cwd}/CLAUDE.md', '{cwd}/CLAUDE.local.md', '{cwd}/AGENTS.md'] },
+  claude:   { label: 'Claude Code',    filename: 'CLAUDE.md',               dir: 'claude',   format: 'md',   locations: ['CLAUDE.md', '.claude/CLAUDE.md', 'CLAUDE.local.md'], realLocations: ['~/.claude/CLAUDE.md', '~/.claude/CLAUDE.local.md', '{cwd}/CLAUDE.md', '{cwd}/CLAUDE.local.md'] },
   cursor:   { label: 'Cursor',         filename: '.cursorrules',           dir: 'cursor',   format: 'md',   locations: ['.cursorrules', '.cursor/rules'], realLocations: ['{cwd}/.cursor/rules', '{cwd}/.cursorrules', '~/.cursor/rules'] },
   windsurf: { label: 'Windsurf',       filename: '.windsurfrules',         dir: 'windsurf', format: 'md',   locations: ['.windsurfrules'], realLocations: ['{cwd}/.windsurfrules', '~/.codeium/windsurf/.windsurfrules'] },
   chatgpt:  { label: 'ChatGPT',        filename: 'memory.json',            dir: 'chatgpt',  format: 'json', locations: ['memory.json'], realLocations: ['{cwd}/memory.json'] },
