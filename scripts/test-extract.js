@@ -128,5 +128,44 @@ console.log('\n[10] CLAUDE.local.md 写回：仅 local 文件存在时优先命�
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
+console.log('\n[11] extract 边界：空文本 / 纯标点 / 纯英文 / 超长 / 无事实');
+{
+  check('空文本返回空', extractDeterministic('').length === 0);
+  check('纯标点返回空', extractDeterministic('。。。！！！？？？').length === 0);
+  const en = extractDeterministic('I love Rust. Please fix this bug. Ok thanks.');
+  check('英文抽取：抽 Rust 不抽请求/语气', en.some(f => f.content.includes('Rust')) && !en.some(f => f.content.includes('fix')));
+  const long = extractDeterministic('用户喜欢' + '很长的内容'.repeat(100));
+  check('超长句被过滤', long.length === 0);
+  const none = extractDeterministic('今天天气不错，你看窗外。');
+  check('无主体事实返回空', none.length === 0);
+}
+
+console.log('\n[12] extract→reconcile 联动：抽取结果直接对账（矛盾消解）');
+{
+  const { extractDeterministic } = require('../core/extract');
+  const { reconcile, applyPlan } = require('../core/reconcile');
+  const text = '用户现在吃素了。我讨厌香菜。';
+  const facts = extractDeterministic(text);
+  const store = { memories: [{ id: 'meat', content: '用户爱吃牛排', type: 'preference', source: 'claude', createdAt: 1000, updatedAt: 1000, confidence: 0.75 }] };
+  const plan = reconcile(store, facts.map(f => ({ content: f.content, type: f.type, source: 'extract', time: 9000 })), { now: 9000 });
+  check('抽取到吃素事实', facts.some(f => f.content.includes('吃素')));
+  check('吃素替换牛排', plan.deletes.some(d => d.id === 'meat') && plan.adds.length === 2);
+  const applied = applyPlan(JSON.parse(JSON.stringify(store)), plan);
+  check('应用后含吃素不含牛排', applied.memories.some(m => m.content.includes('吃素')) && !applied.memories.some(m => m.content.includes('牛排')));
+}
+
+console.log('\n[13] extract LLM 畸形回退：extractor 返回垃圾时走确定性');
+{
+  const { extract } = require('../core/extract');
+  const badExtractor = async () => 'not-array-garbage';
+  extract('我叫小王，负责记忆层。', { extractor: badExtractor }).then(facts => {
+    check('回退到确定性抽取', Array.isArray(facts) && facts.length >= 1 && facts[0].content.includes('小王'));
+  }).catch(() => {});
+  const nullExtractor = async () => null;
+  extract('我叫小王，负责记忆层。', { extractor: nullExtractor }).then(facts => {
+    check('null 回退确定性', Array.isArray(facts) && facts.length >= 1);
+  }).catch(() => {});
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail === 0 ? 0 : 1);

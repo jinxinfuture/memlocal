@@ -25,7 +25,7 @@ const extractMod = require('./core/extract');
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 
-const PORT = 4173;
+const PORT = parseInt(process.env.PORT || '4173', 10);
 
 // ---------------------------------------------------------------------------
 // HTTP 服务
