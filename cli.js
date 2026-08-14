@@ -16,6 +16,7 @@ const writeback = require('./core/writeback');
 const llmMod = require('./core/llm');
 const extractMod = require('./core/extract');
 const { renderFor } = require('./core/render');
+const { addAudit } = store;
 
 function log(...a) { console.log(...a); }
 function getArg(name) {
@@ -63,11 +64,16 @@ async function main() {
       const dryRun = hasFlag('--dry-run');
       const real = hasFlag('--real');
       const platforms = getArg('--platforms') ? getArg('--platforms').split(',').map(s => s.trim()).filter(Boolean) : undefined;
-      const r = writeback.applyWrites(store.loadStore(), { real, dryRun, platforms, cwd: process.cwd() });
+      const s = store.loadStore();
+      const r = writeback.applyWrites(s, { real, dryRun, platforms, cwd: process.cwd() });
       if (dryRun) {
         log('[dry-run] 将要写回：');
         for (const w of r.wouldWrite) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
       } else {
+        if (r.written.length) {
+          addAudit(s, { action: real ? 'sync-real' : 'sync', detail: `写回 ${r.written.length} 个平台${real ? '（真实路径）' : '（沙箱）'}，备份 ${r.backups.length}` });
+          store.saveStore(s);
+        }
         log(`同步完成：written=${r.written.length}, backups=${r.backups.length}`);
         for (const w of r.written) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
       }
@@ -78,6 +84,16 @@ async function main() {
       const s = store.loadStore();
       const content = renderFor(s, platform);
       log(content);
+      return;
+    }
+    case 'audit': {
+      const s = store.loadStore();
+      const limit = parseInt(getArg('--limit') || '20', 10);
+      const rows = (s.audit || []).slice(-limit).reverse();
+      if (!rows.length) { log('（暂无审计记录）'); return; }
+      for (const r of rows) {
+        log(`  ${new Date(r.at).toLocaleString()}  [${r.action}] ${r.detail}`);
+      }
       return;
     }
     case 'extract': {
@@ -100,6 +116,7 @@ async function main() {
       if (plan.deletes.length) log(`  对账：替换 ${plan.deletes.length} 条旧记忆`);
       if (hasFlag('--apply')) {
         reconcile.applyPlan(s, plan);
+        addAudit(s, { action: 'extract', detail: `从文本抽取 ${facts.length} 条（新增 ${plan.adds.length} / 替换 ${plan.deletes.length}）` });
         store.saveStore(s);
         log('已写入 store（--apply）。执行 memlocal sync 同步到各 agent。');
       } else {
@@ -136,8 +153,12 @@ async function main() {
     }
     case 'reflect': {
       const apply = hasFlag('--apply');
-      const plan = reflect.run(store.loadStore(), { apply, now: Date.now() });
-      if (apply) store.saveStore(store.loadStore());
+      const s = store.loadStore();
+      const plan = reflect.run(s, { apply, now: Date.now() });
+      if (apply) {
+        addAudit(s, { action: 'reflect', detail: `压缩归档 ${plan.archiveIds.length} 条，生成 ${plan.summaries.length} 条摘要` });
+        store.saveStore(s);
+      }
       log(`反思/压缩：归档 ${plan.archiveIds.length} 条，生成 ${plan.summaries.length} 条摘要`);
       for (const c of plan.clusters) log(`  簇「${c.topic}」(${c.ids.length} 条) -> ${c.summaryId}`);
       return;
@@ -145,11 +166,16 @@ async function main() {
     case 'writeback': {
       const dryRun = hasFlag('--dry-run');
       const real = hasFlag('--real');
-      const r = writeback.applyWrites(store.loadStore(), { real, dryRun });
+      const s = store.loadStore();
+      const r = writeback.applyWrites(s, { real, dryRun, cwd: process.cwd() });
       if (dryRun) {
         log('[dry-run] 将要写回：');
         for (const w of r.wouldWrite) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
       } else {
+        if (r.written.length) {
+          addAudit(s, { action: real ? 'sync-real' : 'sync', detail: `写回 ${r.written.length} 个平台${real ? '（真实路径）' : '（沙箱）'}，备份 ${r.backups.length}` });
+          store.saveStore(s);
+        }
         log(`写回完成：written=${r.written.length}, backups=${r.backups.length}`);
         for (const w of r.written) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
       }
@@ -167,6 +193,7 @@ async function main() {
       log('  memlocal search "<q>" [--limit N]     检索打分排序');
       log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
       log('  memlocal reflect [--apply]            反思/压缩零散事实');
+      log('  memlocal audit [--limit N]            查看记忆操作审计日志');
       log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   }
 }

@@ -11,7 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 const reconcile = require('./core/reconcile');
 const { PLATFORM_TARGETS, renderMarkdown, renderChatGPT, renderFor } = require('./core/render');
-const { loadStore, saveStore } = require('./core/store');
+const { loadStore, saveStore, addAudit } = require('./core/store');
 const imp = require('./core/import');
 const PLATFORMS = imp.PLATFORMS;
 const { normalizeKey, inferType, parsePlatform, scanCandidates, doImport, doSync } = imp;
@@ -91,6 +91,7 @@ const server = http.createServer(async (req, res) => {
         const plan = reconcile.reconcile(s, facts.map(f => ({ content: f.content, type: f.type, source: 'extract', time: Date.now() })), { now: Date.now() });
         if (body.apply) {
           reconcile.applyPlan(s, plan);
+          addAudit(s, { action: 'extract', detail: `从文本抽取 ${facts.length} 条（新增 ${plan.adds.length} / 替换 ${plan.deletes.length}）` });
           saveStore(s);
         }
         return sendJSON(res, 200, { facts, plan: { adds: plan.adds.length, deletes: plan.deletes.length, needsReview: plan.needsReview.length }, applied: !!body.apply });
@@ -106,6 +107,7 @@ const server = http.createServer(async (req, res) => {
           sourceFile: '', createdAt: Date.now(), updatedAt: Date.now(),
         };
         store.memories.push(mem);
+        addAudit(store, { action: 'add', detail: `手动添加「${content.slice(0, 50)}」` });
         saveStore(store);
         return sendJSON(res, 200, { memory: mem });
       }
@@ -118,13 +120,16 @@ const server = http.createServer(async (req, res) => {
         if (body.content != null) mem.content = body.content.trim();
         if (body.type != null) mem.type = body.type;
         mem.updatedAt = Date.now();
+        addAudit(store, { action: 'update', detail: `编辑记忆 ${id.slice(0, 12)}` });
         saveStore(store);
         return sendJSON(res, 200, { memory: mem });
       }
       if (p.startsWith('/api/memory/') && req.method === 'DELETE') {
         const id = p.split('/').pop();
         const store = loadStore();
+        const mem = store.memories.find(m => m.id === id);
         store.memories = store.memories.filter(m => m.id !== id);
+        addAudit(store, { action: 'delete', detail: mem ? `删除「${mem.content.slice(0, 50)}」` : `删除 ${id}` });
         saveStore(store);
         return sendJSON(res, 200, { ok: true });
       }
@@ -139,13 +144,14 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         const changes = Array.isArray(body.changes) ? body.changes : [];
         const apply = !!body.apply;
-        const plan = reconcile.reconcile(loadStore(), changes, {
+        const store = loadStore();
+        const plan = reconcile.reconcile(store, changes, {
           now: Date.now(),
           confidenceThreshold: body.confidenceThreshold != null ? body.confidenceThreshold : 0.5,
         });
         if (apply) {
-          const store = loadStore();
           reconcile.applyPlan(store, plan);
+          addAudit(store, { action: 'reconcile', detail: `对账 ${changes.length} 条：新增 ${plan.adds.length} / 替换 ${plan.deletes.length} / 待审 ${plan.needsReview.length}` });
           saveStore(store);
         }
         return sendJSON(res, 200, { plan, applied: apply });
@@ -181,9 +187,18 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/reflect' && req.method === 'POST') {
         const body = await readBody(req);
         const apply = !!body.apply;
-        const plan = reflect.run(loadStore(), { apply, now: Date.now() });
-        if (apply) saveStore(loadStore());
+        const store = loadStore();
+        const plan = reflect.run(store, { apply, now: Date.now() });
+        if (apply) {
+          addAudit(store, { action: 'reflect', detail: `压缩归档 ${plan.archiveIds.length} 条，生成 ${plan.summaries.length} 条摘要` });
+          saveStore(store);
+        }
         return sendJSON(res, 200, { plan, applied: apply });
+      }
+      if (p === '/api/audit' && req.method === 'GET') {
+        const store = loadStore();
+        const limit = parseInt(u.searchParams.get('limit') || '20', 10);
+        return sendJSON(res, 200, { audit: (store.audit || []).slice(-limit).reverse() });
       }
       return sendJSON(res, 404, { error: 'not found' });
     } catch (e) {

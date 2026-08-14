@@ -2,15 +2,18 @@
 
 /**
  * MemLocal — 导入 / 同步逻辑（被 server.js 与 cli.js 共用）
+ *
+ * 唯一真相源：core/render.js 的 PLATFORM_TARGETS（9 平台）。
+ * 解析/扫描能力吸收自早期 core/adapters.js（嵌套目录、.cursor/rules/*.mdc、runImport 不写盘）。
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
-const { loadStore, saveStore } = require('./store');
+const { loadStore, saveStore, addAudit } = require('./store');
 const { renderFor } = require('./render');
 const { PLATFORM_TARGETS } = require('./render');
+const { normalizeKey, inferType, newId } = require('./util');
 
 const ROOT = path.join(__dirname, '..');
 const EXPORTS_DIR = path.join(ROOT, 'exports');
@@ -22,22 +25,14 @@ const PLATFORMS = Object.fromEntries(
   Object.entries(PLATFORM_TARGETS).map(([k, v]) => [k, { label: v.label, files: v.locations }])
 );
 
-function normalizeKey(s) {
-  return s.toLowerCase().replace(/[\s.,，。！!?？、;；:：'"'\"()（）\[\]【】\-_/\\]/g, '').trim();
-}
+const JSON_FORMATS = new Set(['chatgpt']);
 
-function inferType(content) {
-  const c = content.toLowerCase();
-  if (/(喜欢|讨厌|偏好|不用|用 ?\w+? ?不用|爱用|拒绝|坚持|习惯|风格)/.test(c)) return 'preference';
-  if (/(项目|在做|负责|产品|创业|公司|团队|客户)/.test(c)) return 'project';
-  if (/(叫 ?\w+|名字|称呼|是 ?\w+ ?人|职业|角色)/.test(c)) return 'identity';
-  if (/(住|城市|地点|中国|北京|上海|深圳|杭州|广州|成都|macos|windows|linux)/.test(c)) return 'context';
-  return 'fact';
-}
-
+// ---------------------------------------------------------------------------
+// 解析
+// ---------------------------------------------------------------------------
 function parseMarkdown(text) {
   const out = [];
-  const lines = text.split(/\r?\n/);
+  const lines = (text || '').split(/\r?\n/);
   let section = '';
   for (const line of lines) {
     const t = line.trim();
@@ -50,6 +45,23 @@ function parseMarkdown(text) {
     if (clean.length >= 2) out.push(clean);
   }
   return out;
+}
+
+// .cursor/rules/*.mdc：剥离 YAML frontmatter（description/globs/alwaysApply）再按 Markdown 解析
+function parseMdc(text) {
+  const m = String(text || '').match(/^\s*---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (m) {
+    const meta = {};
+    for (const line of m[1].split(/\r?\n/)) {
+      const kv = line.match(/^([\w-]+)\s*:\s*(.*)$/);
+      if (kv) meta[kv[1].trim()] = kv[2].trim().replace(/^["']|["']$/g, '');
+    }
+    const body = parseMarkdown(m[2]);
+    // frontmatter 里的描述也可能是记忆（如 "用户偏好 X"）
+    if (meta.description && meta.description.length >= 2) body.unshift(meta.description);
+    return body;
+  }
+  return parseMarkdown(text);
 }
 
 function parseChatGPT(text) {
@@ -66,48 +78,57 @@ function parseChatGPT(text) {
   return out;
 }
 
-function parsePlatform(platform, text) {
-  return platform === 'chatgpt' ? parseChatGPT(text) : parseMarkdown(text);
+function parsePlatform(platform, text, file) {
+  if (JSON_FORMATS.has(platform)) return parseChatGPT(text);
+  if (file && file.endsWith('.mdc')) return parseMdc(text);
+  return parseMarkdown(text);
 }
 
-function scanCandidates() {
-  // 真实用户场景：扫描当前工作目录 + 用户主目录（覆盖 ~/.claude/CLAUDE.md 等真实位置）
-  const bases = [process.cwd(), os.homedir()];
-  const found = [];
-  for (const dir of bases) {
-    let entries = [];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { continue; }
-    const names = new Set(entries.filter(e => e.isFile()).map(e => e.name));
-    for (const [platform, cfg] of Object.entries(PLATFORMS)) {
-      for (const f of cfg.files) {
-        const base = path.basename(f);
-        if (names.has(base)) found.push({ platform, dir, file: path.join(dir, f), label: cfg.label });
-      }
-      if (platform === 'cursor' && cfg.files.includes('.cursor/rules')) {
-        const rulesDir = path.join(dir, '.cursor', 'rules');
-        try {
-          const mdc = fs.readdirSync(rulesDir).filter(n => n.endsWith('.mdc'));
-          for (const m of mdc) found.push({ platform, dir: rulesDir, file: path.join(rulesDir, m), label: cfg.label });
-        } catch (e) {}
-      }
-    }
+// ---------------------------------------------------------------------------
+// 扫描：cwd + 用户主目录 + 额外目录 + 样例，覆盖嵌套布局与 .cursor/rules/*.mdc
+// ---------------------------------------------------------------------------
+function scanCandidates(opts = {}) {
+  const bases = [];
+  if (opts.cwd) bases.push(opts.cwd);
+  if (opts.home) bases.push(opts.home);
+  if (Array.isArray(opts.extraDirs)) bases.push(...opts.extraDirs);
+  if (!opts.cwd && !opts.home && !opts.extraDirs) {
+    bases.push(process.cwd(), os.homedir());
   }
-  // demo：显式扫描样例仓库 samples/<platform>/<file>
-  if (fs.existsSync(SAMPLES_DIR)) {
-    for (const [platform, cfg] of Object.entries(PLATFORMS)) {
-      for (const f of cfg.files) {
-        const fp = path.join(SAMPLES_DIR, platform, path.basename(f));
-        try { if (fs.statSync(fp).isFile()) found.push({ platform, dir: SAMPLES_DIR, file: fp, label: cfg.label }); } catch (e) {}
+  if (fs.existsSync(SAMPLES_DIR)) bases.push(SAMPLES_DIR);
+
+  const found = [];
+  for (const base of bases) {
+    for (const [platform, cfg] of Object.entries(PLATFORM_TARGETS)) {
+      // 1) locations 相对路径（文件或目录，如 .cursor/rules 目录下的 .mdc/.md）
+      for (const loc of (cfg.locations || [cfg.filename])) {
+        const fp = path.join(base, loc);
+        let stat = null;
+        try { stat = fs.statSync(fp); } catch (e) { continue; }
+        if (stat.isDirectory()) {
+          let files = [];
+          try { files = fs.readdirSync(fp).filter(n => n.endsWith('.mdc') || n.endsWith('.md')); } catch (e) {}
+          for (const f of files) found.push({ platform, dir: fp, file: path.join(fp, f), label: cfg.label });
+        } else if (stat.isFile()) {
+          found.push({ platform, dir: base, file: fp, label: cfg.label });
+        }
+      }
+      // 2) 嵌套子目录布局（samples/<platform>/<file>、project/.claude/CLAUDE.md）
+      const nested = path.join(base, cfg.dir, cfg.filename);
+      if (nested !== path.join(base, cfg.filename)) {
+        try { if (fs.statSync(nested).isFile()) found.push({ platform, dir: base, file: nested, label: cfg.label }); } catch (e) {}
       }
     }
   }
   const seen = new Set();
-  return found.filter(f => { const k = f.file; if (seen.has(k)) return false; seen.add(k); return true; });
+  return found.filter(f => { if (seen.has(f.file)) return false; seen.add(f.file); return true; });
 }
 
-function doImport() {
-  const store = loadStore();
-  const candidates = scanCandidates();
+// ---------------------------------------------------------------------------
+// 去重合并进 store（不写盘，由调用方 save；opts.audit 回调可记录审计）
+// ---------------------------------------------------------------------------
+function runImport(store, dirs, opts = {}) {
+  const candidates = scanCandidates(dirs || {});
   const seen = new Map();
   for (const m of store.memories) seen.set(normalizeKey(m.content), m);
 
@@ -115,19 +136,24 @@ function doImport() {
   for (const c of candidates) {
     let text;
     try { text = fs.readFileSync(c.file, 'utf8'); } catch (e) { continue; }
-    const facts = parsePlatform(c.platform, text);
+    const facts = parsePlatform(c.platform, text, c.file);
     for (const fact of facts) {
       const key = normalizeKey(fact);
       if (seen.has(key)) {
         const exist = seen.get(key);
-        if (!exist.source.includes(c.platform)) exist.source = exist.source + ',' + c.platform;
+        if (!exist.source.includes(c.platform)) { exist.source = exist.source + ',' + c.platform; summary.updated++; }
         summary.skipped++;
         continue;
       }
       const mem = {
-        id: 'm_' + crypto.randomBytes(6).toString('hex'),
-        content: fact, type: inferType(fact), source: c.platform,
-        sourceFile: c.file, createdAt: Date.now(), updatedAt: Date.now(),
+        id: newId(),
+        content: fact,
+        type: inferType(fact),
+        source: c.platform,
+        sourceFile: c.file,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        confidence: 0.75,
       };
       store.memories.push(mem);
       seen.set(key, mem);
@@ -138,11 +164,19 @@ function doImport() {
   store.lastImport = Date.now();
   store.connections = {};
   for (const c of candidates) store.connections[c.platform] = { label: c.label, file: c.file, ok: true };
-  saveStore(store);
-  return { summary, candidates: candidates.map(c => ({ platform: c.platform, label: c.label, file: c.file })) };
+  if (opts.audit) opts.audit({ action: 'import', detail: summary, files: candidates.length });
+  return { summary, candidates };
 }
 
-function doSync() {
+function doImport(opts = {}) {
+  const store = loadStore();
+  const r = runImport(store, opts);
+  addAudit(store, { action: 'import', detail: `新增 ${r.summary.imported} 条 / 更新来源 ${r.summary.updated} 条 / 跳过 ${r.summary.skipped} 条 / 命中 ${r.candidates.length} 个文件` });
+  saveStore(store);
+  return { summary: r.summary, candidates: r.candidates.map(c => ({ platform: c.platform, label: c.label, file: c.file })) };
+}
+
+function doSync(opts = {}) {
   const store = loadStore();
   const written = [];
   for (const [platform, t] of Object.entries(PLATFORM_TARGETS)) {
@@ -154,8 +188,9 @@ function doSync() {
     written.push({ platform, label: t.label, file: fp, bytes: Buffer.byteLength(content) });
   }
   store.lastSync = Date.now();
+  addAudit(store, { action: 'sync', detail: `写回 ${written.length} 个平台到沙箱 exports/` });
   saveStore(store);
   return { written };
 }
 
-module.exports = { PLATFORMS, normalizeKey, inferType, parseMarkdown, parseChatGPT, parsePlatform, scanCandidates, doImport, doSync };
+module.exports = { PLATFORMS, normalizeKey, inferType, parseMarkdown, parseMdc, parseChatGPT, parsePlatform, scanCandidates, runImport, doImport, doSync };

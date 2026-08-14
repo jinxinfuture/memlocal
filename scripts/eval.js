@@ -2,13 +2,17 @@
 
 /**
  * MemLocal — 轻量评测（LOCOMO 思路）
- * 量化核心能力：矛盾消解 / 更新检测 / 无冲突新增 / 实体切换 / 时间推理 / 检索排序 / 反思压缩。
+ * 量化核心能力：矛盾消解 / 更新检测 / 无冲突新增 / 实体切换 / 时间推理 / 检索排序 / 反思压缩 / 抽取 / store 迁移。
  * 纯确定性，不依赖网络；`node scripts/eval.js` 输出通过率。
  */
 
 const reconcile = require('../core/reconcile');
 const retrieve = require('../core/retrieve');
 const reflect = require('../core/reflect');
+const extract = require('../core/extract');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const N = (id, content, over = {}) => ({ id, content, type: 'fact', source: 'manual', createdAt: 1, updatedAt: 1, confidence: 0.9, ...over });
 
@@ -75,6 +79,38 @@ test('反思压缩(同簇归档)', () => {
   ], lastImport: null, lastSync: null, connections: {} };
   const plan = reflect.run(store, { apply: false });
   return { pass: plan.archiveIds.length >= 3 && plan.summaries.length >= 1, detail: `archive=${plan.archiveIds.length}, summary=${plan.summaries.length}` };
+});
+
+// 9. 抽取：从对话抽出持久事实，过滤提问/日程/语气词
+test('抽取(对话->事实)', () => {
+  const text = '我叫小王，负责记忆层。我们下周发版。你帮我看看这个 bug。嗯好的。我讨厌香菜。';
+  const facts = extract.extractDeterministic(text);
+  const contents = facts.map(f => f.content).join('|');
+  return { pass: contents.includes('小王') && contents.includes('记忆层') && contents.includes('香菜')
+    && !contents.includes('发版') && !contents.includes('bug') && !contents.includes('好的'),
+    detail: `facts=${facts.length}: ${contents.slice(0, 60)}` };
+});
+
+// 10. 抽取：临时日程（明天开会）不进记忆
+test('抽取(临时日程过滤)', () => {
+  const facts = extract.extractDeterministic('用户明天要开会。用户喜欢 Rust。');
+  return { pass: facts.length === 1 && facts[0].content.includes('Rust'), detail: `facts=${JSON.stringify(facts.map(f => f.content))}` };
+});
+
+// 11. store 迁移：v1 -> v2 补 audit 且不丢记忆
+test('store 迁移(v1->v2)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-eval-'));
+  const oldHome = process.env.MEMLOCAL_HOME;
+  process.env.MEMLOCAL_HOME = tmp;
+  try {
+    const storeMod = require('../core/store');
+    fs.writeFileSync(storeMod.storePath(), JSON.stringify({ version: 1, memories: [{ id: 'a', content: '用户吃素' }] }));
+    const s = storeMod.loadStore();
+    return { pass: s.version === 2 && Array.isArray(s.audit) && s.memories.length === 1, detail: `v=${s.version}, mem=${s.memories.length}` };
+  } finally {
+    process.env.MEMLOCAL_HOME = oldHome;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 // 运行

@@ -1,21 +1,26 @@
 {
   "name": "memlocal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-app, local-first, user-owned unified memory layer for code agents. One source of truth, synced to every agent's native memory file.",
   "bin": {
     "memlocal": "cli.js"
   },
   "main": "cli.js",
   "scripts": {
-    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js",
+    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js",
     "serve": "node server.js",
-    "memlocal": "node cli.js"
+    "memlocal": "node cli.js",
+    "prepublishOnly": "npm test"
   },
   "files": [
     "core",
     "public",
     "samples",
+    "cli.js",
+    "server.js",
     "config.example.json",
+    "FORMAT.md",
+    "GOALS.md",
     "README.md",
     "LICENSE"
   ],
@@ -31,10 +36,21 @@
     "copilot",
     "rag",
     "local-first",
-    "ai"
+    "privacy",
+    "ai",
+    "cli"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=18"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jinxinfuture/memlocal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jinxinfuture/memlocal/issues"
+  },
+  "homepage": "https://github.com/jinxinfuture/memlocal#readme",
+  "author": "jinxinfuture"
 }

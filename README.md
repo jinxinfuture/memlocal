@@ -55,14 +55,16 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | `memlocal search "<q>" [--limit N]` | 检索打分排序（`recency × importance × relevance`） |
 | `memlocal reconcile --content "..." [--apply] [--llm]` | 提交新事实并对账（可选 LLM 增强） |
 | `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要（智能遗忘） |
-| `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」） |
+| `memlocal audit [--limit N]` | 查看记忆操作审计日志（透明可控） |
+| `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」+ 搜索 + 真实写回预览） |
 | `memlocal status` | 查看 store 统计、已支持 agent、真实写回配置 |
 
 ## 数据位置
 
 - 真相源：`~/.memlocal/store.json`（可用环境变量 `MEMLOCAL_HOME` 覆盖，便于 demo / 测试；若旧布局 `<项目>/data/store.json` 已存在则沿用）。
 - 配置：`~/.memlocal/config.json`（`realTargets` 显式指定某平台的写回路径；不配置时 `sync --real` 会自动探测）。
-- 备份：每次真实写回前自动生成 `.bak`。
+- 备份：每次真实写回前自动生成 `.bak`；store.json 损坏时自动备份为 `.corrupt-<时间戳>` 并重建，不静默清空记忆。
+- 审计：store 内置 `audit` 日志（最多 200 条），记录每次 导入/抽取/同步/对账/压缩/增删改 操作，`memlocal audit` 或 Web 面板「审计日志」可查看——透明可控是信任基础。
 
 ## 真实写回路径自动探测
 
@@ -84,16 +86,16 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 
 ## 架构
 
-- `core/store.js` — canonical store 读写（真相源，用户主目录）
-- `core/adapters.js` — 导入解析（Markdown / ChatGPT JSON）+ 扫描各 agent 真实位置 + 去重合并
+- `core/store.js` — canonical store 读写（真相源，用户主目录）+ 版本迁移 + 损坏恢复 + 审计日志
+- `core/import.js` — 导入解析（Markdown / .mdc / ChatGPT JSON）+ 扫描各 agent 真实位置 + 去重合并（唯一实现）
 - `core/render.js` — canonical → 各 agent 原生格式（9 个平台）+ 真实路径自动探测（唯一真相源）
 - `core/reconcile.js` — 对账引擎（矛盾 / 更新 / 实体切换 + 时间推理 + 置信度门控）+ `core/llm.js`（LLM 增强层，无 key 自动回退确定性）
 - `core/extract.js` — 从文本抽取原子事实（确定性兜底 + 可选 LLM），过滤提问/指令/临时日程
 - `core/retrieve.js` — 检索打分（`recency × importance × relevance`）
 - `core/reflect.js` — 反思 / 压缩（智能遗忘）
 - `core/writeback.js` — 真实写回适配器（沙箱 / 自动探测真实路径 + 自动备份）
-- `cli.js` — 一行命令同步
-- `server.js` + `public/index.html` — Web 面板（可视化 + 抽取）
+- `cli.js` — 一行命令同步（含 init/status/audit）
+- `server.js` + `public/index.html` — Web 面板（搜索 / 抽取 / 审计 / 真实写回预览）
 - `samples/` — 各 agent 的样例记忆文件（demo 用）
 - `FORMAT.md` — **开放格式标准**（任何 agent 都能接入）
 
@@ -104,8 +106,9 @@ MemLocal 把「记忆」定义成一份开放 JSON 规范（`FORMAT.md`），任
 
 ## 质量保障
 
-- `npm test` 跑三套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark）+ `scripts/test-reconcile.js`（对账）+ `scripts/test-extract.js`（抽取 / 路径探测 / 注册表统一），CI 全绿。
+- `npm test` 跑四套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark，含抽取/迁移）+ `scripts/test-reconcile.js`（对账）+ `scripts/test-extract.js`（抽取 / 路径探测 / 注册表统一）+ `scripts/test-store.js`（版本迁移 / 损坏恢复 / 审计），CI 全绿。
 - 对账 / 压缩 / 抽取均返回 plan，由调用方决定是否 apply；写回前自动备份——可审计、可回滚。
+- `npm pack` 发布内容已验证（24 个文件，含 cli/core/public/samples/文档），`npm install -g` 后 `memlocal` 命令可用。
 
 ## License
 

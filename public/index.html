@@ -72,12 +72,22 @@
     <div class="btns">
       <button class="primary" id="btnImport">⚡ 一键导入</button>
       <button id="btnSync">🔄 同步到所有 Agent</button>
+      <button id="btnSyncPreview">◎ 真实写回预览</button>
       <button id="btnAdd">＋ 添加记忆</button>
     </div>
   </header>
 
   <div class="chips" id="chips"></div>
   <div class="stats" id="stats"></div>
+
+  <div class="panel" style="padding:12px 18px;">
+    <div class="addbar">
+      <input type="text" id="searchInput" placeholder="🔍 检索记忆…（按 相关度×重要度×近时 打分）" />
+      <button id="btnSearch">搜索</button>
+      <button id="btnSearchClear" style="display:none;">✕ 清除</button>
+    </div>
+    <div id="searchResults" style="margin-top:10px;"></div>
+  </div>
 
   <div class="panel">
     <h2>统一记忆（canonical store）</h2>
@@ -113,6 +123,11 @@
     <h2>操作日志</h2>
     <div id="actLog" class="log"></div>
   </div>
+
+  <div class="panel">
+    <h2>审计日志（透明可控）</h2>
+    <div id="auditLog" class="log"><div class="empty">暂无操作记录。</div></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -128,6 +143,18 @@ async function api(path, opts){ const r=await fetch(path, opts); return r.json()
 
 async function refresh(){
   const s = await api('/api/state');
+  // audit
+  const a = await api('/api/audit?limit=20');
+  const auditEl=document.getElementById('auditLog');
+  if(a.audit && a.audit.length){
+    auditEl.innerHTML='';
+    for(const r of a.audit){
+      const d=document.createElement('div'); d.className='syncitem';
+      const act={import:'导入',extract:'抽取',sync:'同步',reconcile:'对账',reflect:'压缩',add:'添加',update:'编辑',delete:'删除','sync-real':'真实同步'}[r.action]||r.action;
+      d.innerHTML=`<b>${act}</b> <span style="color:var(--muted)">${new Date(r.at).toLocaleTimeString()}</span> — ${escapeHtml(String(r.detail))}`;
+      auditEl.appendChild(d);
+    }
+  }
   // chips
   const chips=document.getElementById('chips'); chips.innerHTML='';
   for(const p of PLATFORMS){
@@ -150,8 +177,11 @@ async function refresh(){
   for(const m of sorted){
     const row=document.createElement('div'); row.className='mem';
     const srcs=m.source.split(',').map(x=>`<span class="tag src">${LABELS[x]||x}</span>`).join('');
+    const conf=m.confidence!=null?Math.round(m.confidence*100):'—';
+    const confTag = m.confidence!=null && m.confidence<0.6 ? `<span class="tag" style="background:var(--amber-soft);color:var(--amber);" title="低置信度，建议核对">${conf}%</span>`
+      : `<span class="tag" style="background:var(--gray-soft);color:var(--gray);">${conf}%</span>`;
     row.innerHTML=`<div class="body"><div class="content">${escapeHtml(m.content)}</div>
-      <div class="meta"><span class="tag t-${m.type}">${typeLabel(m.type)}</span>${srcs}</div></div>
+      <div class="meta"><span class="tag t-${m.type}">${typeLabel(m.type)}</span>${srcs}${confTag}</div></div>
       <div class="ops"><button data-edit="${m.id}">改</button><button data-del="${m.id}">删</button></div>`;
     list.appendChild(row);
   }
@@ -179,6 +209,29 @@ document.getElementById('btnImport').onclick=async()=>{
   toast(`导入 ${sum.imported} 条新记忆`); refresh();
 };
 
+// 搜索
+document.getElementById('btnSearch').onclick=async()=>{
+  const q=document.getElementById('searchInput').value.trim();
+  const box=document.getElementById('searchResults');
+  if(!q){ box.innerHTML=''; return; }
+  const r=await api('/api/search?q='+encodeURIComponent(q)+'&limit=8');
+  document.getElementById('btnSearchClear').style.display='inline-block';
+  if(!r.results.length){ box.innerHTML='<div class="empty">没有匹配的记忆。</div>'; return; }
+  box.innerHTML='';
+  for(const res of r.results){
+    const d=document.createElement('div'); d.className='syncitem';
+    d.innerHTML=`<b style="color:var(--brand)">${res.score.toFixed(2)}</b> ${escapeHtml(res.memory.content)}
+      <span style="color:var(--muted)">— ${typeLabel(res.memory.type)} · 相关 ${res.breakdown.relevance.toFixed(2)}</span>`;
+    box.appendChild(d);
+  }
+};
+document.getElementById('searchInput').addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('btnSearch').click(); });
+document.getElementById('btnSearchClear').onclick=()=>{
+  document.getElementById('searchInput').value='';
+  document.getElementById('searchResults').innerHTML='';
+  document.getElementById('btnSearchClear').style.display='none';
+};
+
 document.getElementById('btnSync').onclick=async()=>{
   toast('正在同步到所有 Agent…');
   const r=await api('/api/sync',{method:'POST'});
@@ -190,6 +243,22 @@ document.getElementById('btnSync').onclick=async()=>{
   }
   log('已同步到 '+r.written.length+' 个 Agent 的记忆文件', true);
   toast('已同步 '+r.written.length+' 个 Agent');
+};
+
+// 真实写回 dry-run 预览（不落盘，展示各平台探测到的真实路径）
+document.getElementById('btnSyncPreview').onclick=async()=>{
+  toast('预览真实写回目标…');
+  const r=await api('/api/writeback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({real:true,dryRun:true})});
+  const box=document.getElementById('syncLog'); box.innerHTML='';
+  const real=r.wouldWrite.filter(w=>w.real);
+  if(!real.length){ box.innerHTML='<div class="empty">未探测到真实写回目标（可用 <code>memlocal config set &lt;平台&gt; &lt;路径&gt;</code> 显式配置）。</div>'; return; }
+  for(const w of real){
+    const d=document.createElement('div'); d.className='syncitem';
+    d.innerHTML=`◎ <b>${w.platform}</b> → <code>${w.file}</code> <span style="color:var(--muted)">(${w.bytes} B · 写前自动备份)</span>`;
+    box.appendChild(d);
+  }
+  log(`预览：探测到 ${real.length} 个真实写回目标（未落盘）`, true);
+  toast('已预览 '+real.length+' 个真实目标');
 };
 
 document.getElementById('btnExtract').onclick=async()=>{
