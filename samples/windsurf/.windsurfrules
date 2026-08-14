@@ -1,0 +1,6 @@
+# Windsurf Rules
+
+- 用户偏好函数式风格，少副作用
+- 用 zustand 管理状态，不用 redux
+- 用户在做一款叫 Typeless 的产品
+- 拒绝在客户端存明文密钥

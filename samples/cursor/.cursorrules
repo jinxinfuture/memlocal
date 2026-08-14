@@ -1,0 +1,8 @@
+# Cursor Rules
+
+- 用户是资深前端工程师
+- 习惯用 TypeScript，拒绝 any
+- 喜欢 tailwindcss 而不是 styled-components
+- 项目构建用 pnpm
+- 用户住在中国杭州
+- 坚持测试覆盖率不低于 80%

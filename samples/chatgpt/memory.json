@@ -1,0 +1,8 @@
+{
+  "memories": [
+    { "content": "用户喜欢在晚上深度工作，凌晨效率最高", "type": "preference" },
+    { "content": "用户对 AI 产品方向很敏感，常做竞品分析", "type": "project" },
+    { "content": "用户养了一只猫，名字叫豆豆", "type": "context" },
+    { "content": "用户讨厌标题党，重视硬证据", "type": "preference" }
+  ]
+}

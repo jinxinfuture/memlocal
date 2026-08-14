@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MemLocal · 跨应用本地优先记忆</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --panel: #ffffff; --ink: #1c1d22; --muted: #6b6f76;
+    --line: #e6e8ec; --brand: #534ab7; --brand-soft: #eeeefe;
+    --green: #0f6e56; --green-soft: #e1f5ee; --amber: #854f0b; --amber-soft: #faefda;
+    --blue: #185fa5; --blue-soft: #e6f1fb; --gray: #5f5e5a; --gray-soft: #f1efe8;
+    --red: #a32d2d; --red-soft: #fcebeb; --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.6; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 600; letter-spacing: -0.2px; }
+  h1 .dot { color: var(--brand); }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel); padding: 9px 14px; color: var(--ink); transition: .15s; }
+  button:hover { border-color: var(--brand); color: var(--brand); }
+  button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  button.primary:hover { background: #3c3489; color: #fff; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0 4px; }
+  .chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+  .chip.on { background: var(--green-soft); color: var(--green); border-color: #9fe1cb; }
+  .chip.off { opacity: .5; }
+  .stats { display: flex; gap: 18px; margin: 18px 0; color: var(--muted); font-size: 13px; }
+  .stats b { color: var(--ink); font-size: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-top: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+  .mem { display: flex; align-items: flex-start; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .mem:first-of-type { border-top: none; }
+  .mem .body { flex: 1; }
+  .mem .content { font-size: 14px; }
+  .mem .meta { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; }
+  .t-preference { background: var(--amber-soft); color: var(--amber); }
+  .t-project { background: var(--blue-soft); color: var(--blue); }
+  .t-identity { background: var(--brand-soft); color: var(--brand); }
+  .t-context { background: var(--green-soft); color: var(--green); }
+  .t-fact { background: var(--gray-soft); color: var(--gray); }
+  .src { background: #fff; border: 1px solid var(--line); color: var(--muted); }
+  .mem .ops { display: flex; gap: 6px; }
+  .mem .ops button { padding: 4px 9px; font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  input[type=text], select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
+  .log { font-size: 12px; color: var(--muted); max-height: 220px; overflow: auto; }
+  .log .ok { color: var(--green); }
+  .syncitem { font-size: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
+  .syncitem:first-child { border-top: none; }
+  .syncitem code { background: var(--gray-soft); padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .addbar { display: flex; gap: 8px; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: #1c1d22; color: #fff;
+    padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>MemLocal<span class="dot"> ·</span> 跨应用记忆层</h1>
+      <div class="sub">本地优先 · 用户拥有 · 一键聚合所有 Agent 的记忆并同步</div>
+    </div>
+    <div class="btns">
+      <button class="primary" id="btnImport">⚡ 一键导入</button>
+      <button id="btnSync">🔄 同步到所有 Agent</button>
+      <button id="btnAdd">＋ 添加记忆</button>
+    </div>
+  </header>
+
+  <div class="chips" id="chips"></div>
+  <div class="stats" id="stats"></div>
+
+  <div class="panel">
+    <h2>统一记忆（canonical store）</h2>
+    <div class="addbar" id="addbar" style="display:none; margin-bottom:12px;">
+      <input type="text" id="addInput" placeholder="写一条记忆，例如：用户偏好用 pnpm" />
+      <select id="addType" style="width:130px;">
+        <option value="">自动识别</option>
+        <option value="preference">偏好</option>
+        <option value="project">项目</option>
+        <option value="identity">身份</option>
+        <option value="context">背景</option>
+        <option value="fact">事实</option>
+      </select>
+      <button class="primary" id="addConfirm">保存</button>
+    </div>
+    <div id="memList"></div>
+  </div>
+
+  <div class="panel">
+    <h2>同步结果</h2>
+    <div id="syncLog" class="log"><div class="empty">尚未同步。点「同步到所有 Agent」从 canonical 反生成各平台记忆文件。</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>操作日志</h2>
+    <div id="actLog" class="log"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const PLATFORMS = ['claude','cursor','windsurf','chatgpt','generic'];
+const LABELS = { claude:'Claude Code', cursor:'Cursor', windsurf:'Windsurf', chatgpt:'ChatGPT', generic:'通用', manual:'手动' };
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+function log(msg, ok){ const el=document.getElementById('actLog'); const d=document.createElement('div'); if(ok)d.className='ok'; d.textContent=(ok?'✓ ':'· ')+msg; el.prepend(d); }
+
+async function api(path, opts){ const r=await fetch(path, opts); return r.json(); }
+
+async function refresh(){
+  const s = await api('/api/state');
+  // chips
+  const chips=document.getElementById('chips'); chips.innerHTML='';
+  for(const p of PLATFORMS){
+    const on = s.connections && s.connections[p] && s.connections[p].ok;
+    const c=document.createElement('span');
+    c.className='chip '+(on?'on':'off');
+    c.textContent=(on?'● ':'○ ')+(LABELS[p]||p);
+    chips.appendChild(c);
+  }
+  // stats
+  const bySrc=s.stats.bySource||{};
+  const srcText=Object.keys(bySrc).map(k=>`${(LABELS[k]||k)} ${bySrc[k]}`).join(' · ')||'—';
+  document.getElementById('stats').innerHTML=
+    `<div><b>${s.stats.total}</b> 条记忆</div><div>来自 <b>${Object.keys(bySrc).length}</b> 个 Agent</div><div>${srcText}</div>`;
+  // list
+  const list=document.getElementById('memList'); list.innerHTML='';
+  if(!s.memories.length){ list.innerHTML='<div class="empty">还没有记忆。点「一键导入」从各 Agent 聚合，或手动添加。</div>'; return; }
+  const order={identity:0,preference:1,project:2,context:3,fact:4};
+  const sorted=[...s.memories].sort((a,b)=>(order[a.type]??9)-(order[b.type]??9));
+  for(const m of sorted){
+    const row=document.createElement('div'); row.className='mem';
+    const srcs=m.source.split(',').map(x=>`<span class="tag src">${LABELS[x]||x}</span>`).join('');
+    row.innerHTML=`<div class="body"><div class="content">${escapeHtml(m.content)}</div>
+      <div class="meta"><span class="tag t-${m.type}">${typeLabel(m.type)}</span>${srcs}</div></div>
+      <div class="ops"><button data-edit="${m.id}">改</button><button data-del="${m.id}">删</button></div>`;
+    list.appendChild(row);
+  }
+  list.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ await api('/api/memory/'+b.dataset.del,{method:'DELETE'}); log('删除记忆',true); refresh(); });
+  list.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editMem(b.dataset.edit));
+}
+
+function typeLabel(t){ return {preference:'偏好',project:'项目',identity:'身份',context:'背景',fact:'事实'}[t]||'事实'; }
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function editMem(id){
+  const s=await api('/api/state'); const m=s.memories.find(x=>x.id===id); if(!m)return;
+  const nv=prompt('编辑记忆内容：', m.content); if(nv==null)return;
+  await api('/api/memory/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:nv})});
+  log('更新记忆',true); refresh();
+}
+
+document.getElementById('btnImport').onclick=async()=>{
+  toast('正在扫描各 Agent 记忆文件…');
+  const r=await api('/api/import',{method:'POST'});
+  const sum=r.summary;
+  log(`导入完成：新增 ${sum.imported} 条，跳过重复 ${sum.skipped} 条`, true);
+  const names=(r.candidates||[]).map(c=>c.label).join('、')||'无';
+  log('检测到来源：'+names);
+  toast(`导入 ${sum.imported} 条新记忆`); refresh();
+};
+
+document.getElementById('btnSync').onclick=async()=>{
+  toast('正在同步到所有 Agent…');
+  const r=await api('/api/sync',{method:'POST'});
+  const box=document.getElementById('syncLog'); box.innerHTML='';
+  for(const w of r.written){
+    const d=document.createElement('div'); d.className='syncitem';
+    d.innerHTML=`✓ <b>${w.label}</b> → <code>${w.file}</code> <span style="color:var(--muted)">(${w.bytes} B)</span>`;
+    box.appendChild(d);
+  }
+  log('已同步到 '+r.written.length+' 个 Agent 的记忆文件', true);
+  toast('已同步 '+r.written.length+' 个 Agent');
+};
+
+const addbar=document.getElementById('addbar');
+document.getElementById('btnAdd').onclick=()=>{ addbar.style.display = addbar.style.display==='none'?'flex':'none'; document.getElementById('addInput').focus(); };
+document.getElementById('addConfirm').onclick=async()=>{
+  const content=document.getElementById('addInput').value.trim();
+  const type=document.getElementById('addType').value;
+  if(!content){ toast('内容为空'); return; }
+  await api('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,type})});
+  document.getElementById('addInput').value=''; addbar.style.display='none';
+  log('手动添加记忆',true); toast('已添加'); refresh();
+};
+
+refresh();
+</script>
+</body>
+</html>
