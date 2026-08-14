@@ -9,6 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const reconcile = require('./core/reconcile');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
@@ -327,6 +328,21 @@ const server = http.createServer(async (req, res) => {
         const store = loadStore();
         const content = platform === 'chatgpt' ? renderChatGPT(store) : renderMarkdown(store, platform);
         return sendJSON(res, 200, { platform, content });
+      }
+      if (p === '/api/reconcile' && req.method === 'POST') {
+        const body = await readBody(req);
+        const changes = Array.isArray(body.changes) ? body.changes : [];
+        const apply = !!body.apply;
+        const plan = reconcile.reconcile(loadStore(), changes, {
+          now: Date.now(),
+          confidenceThreshold: body.confidenceThreshold != null ? body.confidenceThreshold : 0.5,
+        });
+        if (apply) {
+          const store = loadStore();
+          reconcile.applyPlan(store, plan);
+          saveStore(store);
+        }
+        return sendJSON(res, 200, { plan, applied: apply });
       }
       return sendJSON(res, 404, { error: 'not found' });
     } catch (e) {

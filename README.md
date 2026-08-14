@@ -15,7 +15,8 @@ node server.js          # 监听 http://localhost:4173
    `data/store.json`（canonical store）。
 2. **同步到所有 Agent** — 从 canonical store 重新生成每个平台的记忆文件，写入
    `exports/<platform>/`，可直接拷回对应 Agent 的配置位置。
-3. **手动增删改** — 在面板里直接维护统一记忆，LLM 对账（ADD/UPDATE/DELETE）留作 pro 升级位。
+3. **手动增删改** — 在面板里直接维护统一记忆。
+4. **智能对账** — 提交新记忆时调 `/api/reconcile`，自动检测与现有记忆的**矛盾**（如「爱吃牛排」→「现在吃素了」）或**过期更新**（如「每天喝咖啡」→「最近戒了咖啡」），按**时间推理**（新的胜出）与**置信度门控**决定替换或留待人工确认（`needsReview`）。引擎在 `core/reconcile.js`，纯逻辑、可单测（`node scripts/test-reconcile.js`，19/19 通过）。
 
 ## 架构
 - `data/store.json` — 唯一真相源，每条 `{id, content, type, source, sourceFile, time}`

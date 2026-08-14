@@ -17,7 +17,7 @@
 - [ ] 真实写回：同步直接落回各 agent 真实配置路径，而非仅 `exports/`
 - [ ] 检索打分：recency × importance × relevance，导出按需取相关条目
 - [ ] 反思/压缩（智能遗忘）：周期性把零散事实压成高层摘要
-- [ ] LLM 对账：ADD/UPDATE/DELETE + 冲突/时间推理 + 置信度门控
+- [x] LLM 对账·确定性核心：`core/reconcile.js` + `/api/reconcile`，矛盾(牛排↔素)/更新(喝咖啡↔戒咖啡)检测 + 时间推理 + 置信度门控 + 主语不误判；LLM 增强层（opts.llm）待接
 - [ ] 开放格式标准 + CLI：任何 code agent 一行命令同步
 - [ ] 评测：LOCOMO 思路轻量 benchmark，量化记忆质量
 
