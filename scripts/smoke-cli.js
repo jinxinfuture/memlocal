@@ -120,6 +120,14 @@ console.log('\n[13] 帮助文本');
   check('帮助含全部命令', ['init','status','import','sync','extract','search','reconcile','reflect','audit','backup','restore','export-all','watch','config','serve'].every(c => out.includes(c)));
 }
 
+console.log('\n[14] --version / --help');
+{
+  const v = run('--version');
+  check('--version 输出版本号', /^\d+\.\d+\.\d+$/.test(v));
+  const h = run('--help');
+  check('--help 输出帮助', h.includes('MemLocal CLI'));
+}
+
 // 清理
 fs.rmSync(HOME, { recursive: true, force: true });
 

@@ -27,8 +27,42 @@ function getArg(name) {
 }
 function hasFlag(name) { return process.argv.includes(name); }
 
+function printHelp() {
+  log('MemLocal CLI v' + require('./package.json').version);
+  log('  memlocal init                          初始化 ~/.memlocal（store + config）');
+  log('  memlocal status                        查看统计、已支持平台、真实写回探测');
+  log('  memlocal serve                        启动 HTTP 服务 (:4173)');
+  log('  memlocal import                       扫描并导入各 agent 记忆到 store');
+  log('  memlocal sync [--dry-run] [--real] [--platforms p1,p2]  同步（默认沙箱全部 9 平台；--real 自动探测真实路径+备份）');
+  log('  memlocal extract --text "..." [--file F] [--llm] [--apply]  从文本抽取记忆并入 store');
+  log('  memlocal export --platform <p>        打印某平台渲染结果');
+  log('  memlocal search "<q>" [--limit N]     检索打分排序');
+  log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
+  log('  memlocal reflect [--apply]            反思/压缩零散事实');
+  log('  memlocal config get|set <key> <value> 查看/设置配置（deepseek.apiKey / realTargets.*）');
+  log('  memlocal audit [--limit N]            查看记忆操作审计日志');
+  log('  memlocal backup                       创建备份（压缩到 ~/.memlocal/backups/）');
+  log('  memlocal backups                      列出可用备份');
+  log('  memlocal restore --file <备份>         从备份恢复（当前状态先另存安全备份）');
+  log('  memlocal export-all                   导出记忆（合并 Markdown + 原始 JSON）');
+  log('  memlocal watch [--interval N] [--real]  监听各 agent 记忆文件变化，自动导入+同步');
+  log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
+  log('  memlocal --version / --help           版本 / 帮助');
+}
+
 async function main() {
   const cmd = process.argv[2];
+
+  // --version / -v
+  if (cmd === '--version' || cmd === '-v') {
+    log(require('./package.json').version);
+    return;
+  }
+  // --help / -h
+  if (cmd === '--help' || cmd === '-h') {
+    printHelp();
+    return;
+  }
 
   switch (cmd) {
     case 'init': {
@@ -291,25 +325,7 @@ async function main() {
       return;
     }
     default:
-      log('MemLocal CLI');
-      log('  memlocal init                          初始化 ~/.memlocal（store + config）');
-      log('  memlocal status                        查看统计、已支持平台、真实写回探测');
-      log('  memlocal serve                        启动 HTTP 服务 (:4173)');
-      log('  memlocal import                       扫描并导入各 agent 记忆到 store');
-      log('  memlocal sync [--dry-run] [--real] [--platforms p1,p2]  同步（默认沙箱全部 9 平台；--real 自动探测真实路径+备份）');
-      log('  memlocal extract --text "..." [--file F] [--llm] [--apply]  从文本抽取记忆并入 store');
-      log('  memlocal export --platform <p>        打印某平台渲染结果');
-      log('  memlocal search "<q>" [--limit N]     检索打分排序');
-      log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
-      log('  memlocal reflect [--apply]            反思/压缩零散事实');
-      log('  memlocal config get|set <key> <value> 查看/设置配置（deepseek.apiKey / realTargets.*）');
-      log('  memlocal audit [--limit N]            查看记忆操作审计日志');
-      log('  memlocal backup                       创建备份（压缩到 ~/.memlocal/backups/）');
-      log('  memlocal backups                      列出可用备份');
-      log('  memlocal restore --file <备份>         从备份恢复（当前状态先另存安全备份）');
-      log('  memlocal export-all                   导出记忆（合并 Markdown + 原始 JSON）');
-      log('  memlocal watch [--interval N] [--real]  监听各 agent 记忆文件变化，自动导入+同步');
-      log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
+      printHelp();
   }
 }
 
