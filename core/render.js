@@ -24,11 +24,12 @@ const PLATFORM_TARGETS = {
   copilot:  { label: 'GitHub Copilot', filename: 'copilot-instructions.md', dir: 'copilot',  format: 'md',   locations: ['.github/copilot-instructions.md'], realLocations: ['~/.config/github-copilot/instructions.md', '{cwd}/.github/copilot-instructions.md'] },
 };
 
-// 把 ~ 与 {cwd} 展开成绝对路径
+// 把 ~ 与 {cwd} 展开成绝对路径（home 可用 opts.home 覆盖，便于测试隔离）
 function expandRealLocation(loc, opts = {}) {
   const cwd = opts.cwd || process.cwd();
+  const home = opts.home || require('os').homedir();
   let p = String(loc).replace('{cwd}', cwd);
-  if (p.startsWith('~/')) p = require('os').homedir() + p.slice(1);
+  if (p.startsWith('~/')) p = home + p.slice(1);
   return p;
 }
 

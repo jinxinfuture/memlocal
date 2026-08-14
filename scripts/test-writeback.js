@@ -75,15 +75,18 @@ withHome(() => {
 });
 
 console.log('\n[5] 安全策略：无 config 时 ~ 候选不因目录存在而命中（防污染 home）');
-withHome(() => {
+withHome((home) => {
   const { applyWrites } = require('../core/writeback');
-  const tmpProj = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-proj-'));
-  // 项目目录存在但 home 无 .claude：真实写回应只命中 {cwd} 项目级，不写 home
-  const r = applyWrites(makeStore(), { real: true, cwd: tmpProj });
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-wb-'));
+  const fakeHome = path.join(tmpRoot, 'home');
+  const tmpProj = path.join(tmpRoot, 'proj');
+  fs.mkdirSync(tmpProj);
+  // 项目目录存在但假 home 无 .claude：真实写回应只命中 {cwd} 项目级，不写 home
+  const r = applyWrites(makeStore(), { real: true, cwd: tmpProj, home: fakeHome });
   const allReal = r.wouldWrite.filter(w => w.real);
-  check('真实目标都在项目目录', allReal.every(w => w.file.startsWith(tmpProj)));
-  check('home 未被写入', !fs.existsSync(path.join(os.homedir(), '.claude', 'CLAUDE.md')));
-  fs.rmSync(tmpProj, { recursive: true, force: true });
+  check('真实目标都在项目目录', allReal.length > 0 && allReal.every(w => w.file.startsWith(tmpProj)));
+  check('假 home 未被写入', !fs.existsSync(path.join(fakeHome, '.claude', 'CLAUDE.md')));
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
 
 console.log('\n[6] cursor 目录目标 -> .mdc 文件');

@@ -70,7 +70,7 @@ function applyWrites(store, opts = {}) {
     for (const platform of platforms) {
       const t = PLATFORM_TARGETS[platform];
       if (!t) continue;
-      const base = detectRealLocation(platform, cfg, { cwd: opts.cwd });
+      const base = detectRealLocation(platform, cfg, { cwd: opts.cwd, home: opts.home });
       if (!base) continue;
       // cursor 目录型目标 -> 写 .mdc；文件型目标 -> 直接写
       let fp = base;

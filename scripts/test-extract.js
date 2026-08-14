@@ -47,42 +47,38 @@ console.log('\n[3] 平台注册表统一：import.PLATFORMS 与 render.PLATFORM_
   check('每平台有 label/filename/format/locations', Object.values(PLATFORM_TARGETS).every(t => t.label && t.filename && t.format && Array.isArray(t.locations)));
 }
 
-console.log('\n[4] 路径探测：~ 与 {cwd} 展开');
+console.log('\n[4] 路径探测：~ 与 {cwd} 展开（注入 home/cwd）');
 {
-  check('~ 展开到 home', expandRealLocation('~/x.md').startsWith(os.homedir()));
+  check('~ 展开到注入 home', expandRealLocation('~/x.md', { home: '/fake/home' }) === '/fake/home/x.md');
   check('{cwd} 展开到 cwd', expandRealLocation('{cwd}/x.md', { cwd: '/tmp' }) === '/tmp/x.md');
 }
 
 console.log('\n[5] 路径探测安全：~ 候选文件不存在时绝不自动创建（防污染 home）');
 {
   const fakeConfig = {};
-  // 模拟全新环境：home 无 ~/.claude/CLAUDE.md、cwd 为空项目
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-detect-'));
-  const cwd = path.join(tmpHome, 'proj');
+  // 模拟全新环境：假 home 无 ~/.claude/CLAUDE.md、cwd 为空项目（全部用注入 home，不碰真实用户目录）
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-detect-'));
+  const fakeHome = path.join(tmpRoot, 'home');
+  const cwd = path.join(tmpRoot, 'proj');
   fs.mkdirSync(cwd);
-  const loc = detectRealLocation('claude', fakeConfig, { cwd });
-  // claude realLocations: ~/.claude/CLAUDE.md(不存在) -> ~/.claude/CLAUDE.local.md(不存在) -> {cwd}/CLAUDE.md(父目录存在)
+  const loc = detectRealLocation('claude', fakeConfig, { cwd, home: fakeHome });
+  // claude realLocations: ~/.claude/CLAUDE.md(假home不存在) -> ~/.claude/CLAUDE.local.md(不存在) -> {cwd}/CLAUDE.md(父目录存在)
   check('探测到 cwd 项目级路径', loc === path.join(cwd, 'CLAUDE.md'));
-  check('未在 home 创建文件', !fs.existsSync(path.join(os.homedir(), '.claude', 'CLAUDE.md')) && !fs.existsSync(path.join(os.homedir(), '.claude')));
-  // 清理临时目录
-  fs.rmSync(tmpHome, { recursive: true, force: true });
+  check('未在假 home 创建文件', !fs.existsSync(path.join(fakeHome, '.claude', 'CLAUDE.md')) && !fs.existsSync(path.join(fakeHome, '.claude')));
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
-console.log('\n[6] 路径探测：已存在 ~/.claude/CLAUDE.md 时优先更新它（真实已装 agent）');
+console.log('\n[6] 路径探测：假 home 已有 ~/.claude/CLAUDE.md 时优先更新它（真实已装 agent）');
 {
-  const realClaudeDir = path.join(os.homedir(), '.claude');
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-detect-'));
+  const fakeHome = path.join(tmpRoot, 'home');
+  const realClaudeDir = path.join(fakeHome, '.claude');
   const realClaudeFile = path.join(realClaudeDir, 'CLAUDE.md');
-  const created = !fs.existsSync(realClaudeFile);
-  try {
-    fs.mkdirSync(realClaudeDir, { recursive: true });
-    fs.writeFileSync(realClaudeFile, '# existing\n');
-    const loc = detectRealLocation('claude', {}, { cwd: '/tmp' });
-    check('优先命中 ~/.claude/CLAUDE.md', loc === realClaudeFile);
-  } finally {
-    if (created) {
-      try { fs.unlinkSync(realClaudeFile); fs.rmdirSync(realClaudeDir); } catch (e) {}
-    }
-  }
+  fs.mkdirSync(realClaudeDir, { recursive: true });
+  fs.writeFileSync(realClaudeFile, '# existing\n');
+  const loc = detectRealLocation('claude', {}, { cwd: path.join(tmpRoot, 'proj'), home: fakeHome });
+  check('优先命中 ~/.claude/CLAUDE.md', loc === realClaudeFile);
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 console.log('\n[7] 路径探测：config.realTargets 显式配置 > 自动探测');
@@ -113,29 +109,23 @@ console.log('\n[9] llm.js extractJSON 容错：markdown 包裹 / 前后杂文本
 
 console.log('\n[10] CLAUDE.local.md 写回：仅 local 文件存在时优先命中它（项目 CLAUDE.md 仍兜底）');
 {
-  const fs = require('fs');
-  const realClaudeDir = path.join(os.homedir(), '.claude');
+  // 全部用注入假 home，不碰真实用户目录（Windows CI 稳定）
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ml-cl-'));
+  const fakeHome = path.join(tmpRoot, 'home');
+  const realClaudeDir = path.join(fakeHome, '.claude');
   const localFile = path.join(realClaudeDir, 'CLAUDE.local.md');
   const mdFile = path.join(realClaudeDir, 'CLAUDE.md');
-  const localExisted = fs.existsSync(localFile);
-  const mdExisted = fs.existsSync(mdFile);
-  try {
-    fs.mkdirSync(realClaudeDir, { recursive: true });
-    // 场景 A：只有 CLAUDE.local.md 存在 -> 命中它
-    fs.writeFileSync(localFile, '# local\n');
-    if (mdExisted) fs.renameSync(mdFile, mdFile + '.tmp');
-    const locA = detectRealLocation('claude', {}, { cwd: '/tmp/x' });
-    check('仅 local 存在时命中 local', locA === localFile);
-    // 场景 B：CLAUDE.md 也存在 -> 按探测顺序仍先命中 CLAUDE.md（标准文件优先）
-    fs.writeFileSync(mdFile, '# main\n');
-    const locB = detectRealLocation('claude', {}, { cwd: '/tmp/x' });
-    check('CLAUDE.md 存在时优先它', locB === mdFile);
-  } finally {
-    try { fs.unlinkSync(localFile); } catch (e) {}
-    try { fs.unlinkSync(mdFile); } catch (e) {}
-    if (mdExisted && fs.existsSync(mdFile + '.tmp')) fs.renameSync(mdFile + '.tmp', mdFile);
-    if (!localExisted && !mdExisted) { try { fs.rmdirSync(realClaudeDir); } catch (e) {} }
-  }
+  const cwd = path.join(tmpRoot, 'proj');
+  fs.mkdirSync(realClaudeDir, { recursive: true });
+  // 场景 A：只有 CLAUDE.local.md 存在 -> 命中它
+  fs.writeFileSync(localFile, '# local\n');
+  const locA = detectRealLocation('claude', {}, { cwd, home: fakeHome });
+  check('仅 local 存在时命中 local', locA === localFile);
+  // 场景 B：CLAUDE.md 也存在 -> 按探测顺序仍先命中 CLAUDE.md（标准文件优先）
+  fs.writeFileSync(mdFile, '# main\n');
+  const locB = detectRealLocation('claude', {}, { cwd, home: fakeHome });
+  check('CLAUDE.md 存在时优先它', locB === mdFile);
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
