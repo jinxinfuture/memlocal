@@ -15,19 +15,15 @@
 
 const fs = require('fs');
 const path = require('path');
+const storeMod = require('./store');
 const { PLATFORM_TARGETS, renderFor } = require('./render');
 
-function resolveRoot() {
-  return path.join(__dirname, '..');
+function loadConfig() {
+  return storeMod.loadConfig();
 }
 
-function loadConfig() {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(resolveRoot(), 'data', 'config.json'), 'utf8'));
-    return cfg || {};
-  } catch (e) {
-    return {};
-  }
+function defaultTargetDir() {
+  return path.join(storeMod.homeDir(), 'writes');
 }
 
 function backupFile(fp) {
@@ -43,8 +39,7 @@ function backupFile(fp) {
  * @returns {object} { written:[], wouldWrite:[], backups:[] }
  */
 function applyWrites(store, opts = {}) {
-  const root = resolveRoot();
-  const targetDir = opts.targetDir || path.join(root, 'data', 'writes');
+  const targetDir = opts.targetDir || defaultTargetDir();
   const dryRun = !!opts.dryRun;
   const platforms = opts.platforms || Object.keys(PLATFORM_TARGETS);
 
@@ -89,7 +84,7 @@ function applyWrites(store, opts = {}) {
 }
 
 function listBackups(targetDir) {
-  const base = targetDir || path.join(resolveRoot(), 'data', 'writes');
+  const base = targetDir || defaultTargetDir();
   const out = [];
   try {
     const walk = (dir) => {
@@ -111,4 +106,4 @@ function restore(backupPath) {
   return true;
 }
 
-module.exports = { applyWrites, listBackups, restore, resolveRoot, loadConfig };
+module.exports = { applyWrites, listBackups, restore, defaultTargetDir, loadConfig };

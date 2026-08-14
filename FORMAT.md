@@ -5,7 +5,7 @@
 
 ## 1. Canonical Store（真相源）
 
-单一 JSON 文件，路径 `data/store.json`：
+单一 JSON 文件，默认路径 `~/.memlocal/store.json`（可用环境变量 `MEMLOCAL_HOME` 覆盖；旧布局 `<项目>/data/store.json` 自动兼容）：
 
 ```jsonc
 {
@@ -54,7 +54,7 @@ Markdown 适配器规则：
 ## 3. 同步契约（幂等）
 
 - **导入**：解析各平台原生文件 → 归一 `content` → 与 store 去重（精确相同则 skip，矛盾则走对账）。
-- **同步**：从 store 渲染各平台格式 → 写回目标目录（默认项目内 `data/writes/`，真实路径需显式开启）。
+- **同步**：从 store 渲染各平台格式 → 写回目标目录（默认 `~/.memlocal/writes/`，真实路径在 `~/.memlocal/config.json` 的 `realTargets` 中显式配置后由 `writeback --real` 启用）。
 - **对账**：新事实进入时检测矛盾/更新（见 `core/reconcile.js`），返回 plan 由调用方决定 apply。
 
 ## 4. CLI 接口（一行命令同步）

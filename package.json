@@ -13,7 +13,6 @@
   },
   "files": [
     "core",
-    "src",
     "public",
     "samples",
     "config.example.json",

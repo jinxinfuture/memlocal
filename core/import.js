@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { loadStore, saveStore } = require('./store');
 const { renderFor } = require('./render');
@@ -13,7 +14,6 @@ const { renderFor } = require('./render');
 const ROOT = path.join(__dirname, '..');
 const EXPORTS_DIR = path.join(ROOT, 'exports');
 const SAMPLES_DIR = path.join(ROOT, 'samples');
-const WORKSPACE = '/Users/oh3r/maxapp';
 
 const PLATFORMS = {
   claude:   { label: 'Claude Code', files: ['CLAUDE.md', 'AGENTS.md'] },
@@ -72,16 +72,10 @@ function parsePlatform(platform, text) {
 }
 
 function scanCandidates() {
-  const dirs = [
-    path.join(SAMPLES_DIR, 'claude'),
-    path.join(SAMPLES_DIR, 'cursor'),
-    path.join(SAMPLES_DIR, 'windsurf'),
-    path.join(SAMPLES_DIR, 'chatgpt'),
-    path.join(SAMPLES_DIR, 'generic'),
-    WORKSPACE,
-  ];
+  // 真实用户场景：扫描当前工作目录 + 用户主目录（覆盖 ~/.claude/CLAUDE.md 等真实位置）
+  const bases = [process.cwd(), os.homedir()];
   const found = [];
-  for (const dir of dirs) {
+  for (const dir of bases) {
     let entries = [];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { continue; }
     const names = new Set(entries.filter(e => e.isFile()).map(e => e.name));
@@ -96,6 +90,15 @@ function scanCandidates() {
           const mdc = fs.readdirSync(rulesDir).filter(n => n.endsWith('.mdc'));
           for (const m of mdc) found.push({ platform, dir: rulesDir, file: path.join(rulesDir, m), label: cfg.label });
         } catch (e) {}
+      }
+    }
+  }
+  // demo：显式扫描样例仓库 samples/<platform>/<file>
+  if (fs.existsSync(SAMPLES_DIR)) {
+    for (const [platform, cfg] of Object.entries(PLATFORMS)) {
+      for (const f of cfg.files) {
+        const fp = path.join(SAMPLES_DIR, platform, path.basename(f));
+        try { if (fs.statSync(fp).isFile()) found.push({ platform, dir: SAMPLES_DIR, file: fp, label: cfg.label }); } catch (e) {}
       }
     }
   }

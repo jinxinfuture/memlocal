@@ -1,9 +1,13 @@
 'use strict';
 
 /**
- * MemLocal — canonical store 读写（被 server.js / cli.js / import.js 共用）
+ * MemLocal — canonical store 读写（被 server.js / cli.js / import.js / writeback.js 共用）
  *
- * 默认位置：<memlocal>/data/store.json（项目内、本地优先、进 .gitignore）。
+ * 数据位置（用户拥有、本地优先）：
+ *   1) 环境变量 MEMLOCAL_HOME（便于 demo / 测试 / 自定义）
+ *   2) 兼容旧布局：若 <包>/data/store.json 已存在，沿用项目内 data/（迁移平滑）
+ *   3) 默认 ~/.memlocal/store.json（全局安装后记忆跟随用户，不写进只读安装目录）
+ *
  * 记忆条目 schema：
  *   { id, content, type, source, sourceFile?, createdAt, updatedAt,
  *     confidence?, archived?, stale? }
@@ -11,11 +15,21 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
-const DATA_DIR = path.join(ROOT, 'data');
-const STORE = path.join(DATA_DIR, 'store.json');
+
+function homeDir() {
+  if (process.env.MEMLOCAL_HOME) return process.env.MEMLOCAL_HOME;
+  const legacy = path.join(ROOT, 'data');
+  if (fs.existsSync(path.join(legacy, 'store.json'))) return legacy; // 迁移兼容
+  return path.join(os.homedir(), '.memlocal');
+}
+
+function dataDir() { return homeDir(); }
+function storePath() { return path.join(dataDir(), 'store.json'); }
+function configPath() { return path.join(dataDir(), 'config.json'); }
 
 function emptyStore() {
   return { version: 1, memories: [], lastImport: null, lastSync: null, lastReflect: null, connections: {} };
@@ -23,16 +37,29 @@ function emptyStore() {
 
 function loadStore() {
   try {
-    return JSON.parse(fs.readFileSync(STORE, 'utf8'));
+    return JSON.parse(fs.readFileSync(storePath(), 'utf8'));
   } catch (e) {
     return emptyStore();
   }
 }
 
 function saveStore(store) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(STORE, JSON.stringify(store, null, 2), 'utf8');
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.writeFileSync(storePath(), JSON.stringify(store, null, 2), 'utf8');
   return store;
+}
+
+function loadConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(configPath(), 'utf8')) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveConfig(cfg) {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), 'utf8');
 }
 
 function newMemory(content, opts = {}) {
@@ -50,4 +77,9 @@ function newMemory(content, opts = {}) {
   };
 }
 
-module.exports = { ROOT, DATA_DIR, STORE, loadStore, saveStore, emptyStore, newMemory };
+module.exports = {
+  ROOT, DATA_DIR: dataDir(), STORE: storePath(),
+  homeDir, storePath, configPath,
+  loadStore, saveStore, loadConfig, saveConfig,
+  emptyStore, newMemory,
+};
