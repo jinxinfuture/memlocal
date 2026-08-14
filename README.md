@@ -35,12 +35,13 @@ npm install -g memlocal      # 或临时用：npx memlocal
 ```bash
 memlocal init                           # 初始化 ~/.memlocal（store + 默认 config）
 memlocal import                         # 扫描 当前目录 + 用户主目录，聚合各 agent 记忆
-memlocal config set claude ~/.claude/CLAUDE.md   # 告诉它真实写回路径（每个 agent 一次）
-memlocal writeback --real              # 把统一记忆同步回所有已配置 agent
-memlocal writeback --dry-run           # 预览将要写回的内容（不落盘）
+memlocal sync                           # 同步到全部 9 平台（默认写 ~/.memlocal/writes/ 沙箱）
+memlocal sync --dry-run                 # 预览将要写回的内容（不落盘）
+memlocal sync --real                    # 真实写回：自动探测各 agent 真实路径 + 写前 .bak 备份
+memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --apply   # 从对话自动长出记忆
 ```
 
-日常只需：`memlocal import && memlocal writeback --real`
+日常只需：`memlocal import && memlocal sync --real`
 
 ## 全部命令
 
@@ -48,32 +49,51 @@ memlocal writeback --dry-run           # 预览将要写回的内容（不落盘
 |------|------|
 | `memlocal init` | 初始化 `~/.memlocal`（store + 默认 config） |
 | `memlocal import` | 扫描 cwd + 用户主目录 + 样例，聚合各 agent 记忆到 store（去重） |
-| `memlocal writeback [--dry-run] [--real]` | 写回（默认沙箱 `~/.memlocal/writes/`；`--real` 写回 `config.json` 中配置的真实路径，写前自动 `.bak` 备份） |
-| `memlocal sync` | demo：从 store 生成各平台文件到 `exports/`（便于查看） |
+| `memlocal sync [--dry-run] [--real] [--platforms p1,p2]` | 同步到全部 9 平台。默认沙箱 `~/.memlocal/writes/`；`--real` 自动探测各 agent 真实记忆路径（`~/.claude/CLAUDE.md`、项目 `.cursorrules` 等），写前自动 `.bak` 备份；`--platforms` 可只同步指定平台 |
+| `memlocal extract --text "..." [--file F] [--llm] [--apply]` | 从一段对话/文本自动抽取「值得记住的原子事实」并入库（过滤提问/指令/语气词/临时日程；`--llm` 用 LLM 抽取，未配 key 自动回退确定性） |
 | `memlocal export --platform claude` | 打印某平台的渲染结果 |
 | `memlocal search "<q>" [--limit N]` | 检索打分排序（`recency × importance × relevance`） |
 | `memlocal reconcile --content "..." [--apply] [--llm]` | 提交新事实并对账（可选 LLM 增强） |
 | `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要（智能遗忘） |
-| `memlocal serve` | 启动 Web 面板（默认 `:4173`） |
+| `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」） |
 | `memlocal status` | 查看 store 统计、已支持 agent、真实写回配置 |
 
 ## 数据位置
 
 - 真相源：`~/.memlocal/store.json`（可用环境变量 `MEMLOCAL_HOME` 覆盖，便于 demo / 测试；若旧布局 `<项目>/data/store.json` 已存在则沿用）。
-- 配置：`~/.memlocal/config.json`（`realTargets` 映射各 agent 的真实写回路径）。
+- 配置：`~/.memlocal/config.json`（`realTargets` 显式指定某平台的写回路径；不配置时 `sync --real` 会自动探测）。
 - 备份：每次真实写回前自动生成 `.bak`。
+
+## 真实写回路径自动探测
+
+`memlocal sync --real` 无需手动配置，会自动探测各 agent 的真实记忆位置：
+
+| 平台 | 探测候选（按优先级） |
+|------|------|
+| Claude Code | `~/.claude/CLAUDE.md` → `~/.claude/CLAUDE.local.md` → 项目 `CLAUDE.md` → `AGENTS.md` |
+| Cursor | 项目 `.cursor/rules` → `.cursorrules` → `~/.cursor/rules` |
+| Windsurf | 项目 `.windsurfrules` → `~/.codeium/windsurf/.windsurfrules` |
+| ChatGPT | 项目 `memory.json` |
+| 通用 | `~/.memlocal/MEMORY.md` → 项目 `MEMORY.md` |
+| Codex | 项目 `AGENTS.md` → `~/.codex/AGENTS.md` |
+| Gemini | 项目 `GEMINI.md` → `~/.gemini/GEMINI.md` |
+| Aider | 项目 `CONVENTIONS.md` → `~/.aider/CONVENTIONS.md` |
+| Copilot | 项目 `.github/copilot-instructions.md` |
+
+**安全策略**：已存在的真实配置文件会被更新；`~` 开头的候选**只在文件已存在时**命中（绝不往用户主目录撒新文件）；项目级候选（`{cwd}`）父目录存在即可新建。显式 `config set <平台> <路径>` 始终优先于自动探测。
 
 ## 架构
 
 - `core/store.js` — canonical store 读写（真相源，用户主目录）
 - `core/adapters.js` — 导入解析（Markdown / ChatGPT JSON）+ 扫描各 agent 真实位置 + 去重合并
-- `core/render.js` — canonical → 各 agent 原生格式（9 个平台）
+- `core/render.js` — canonical → 各 agent 原生格式（9 个平台）+ 真实路径自动探测（唯一真相源）
 - `core/reconcile.js` — 对账引擎（矛盾 / 更新 / 实体切换 + 时间推理 + 置信度门控）+ `core/llm.js`（LLM 增强层，无 key 自动回退确定性）
+- `core/extract.js` — 从文本抽取原子事实（确定性兜底 + 可选 LLM），过滤提问/指令/临时日程
 - `core/retrieve.js` — 检索打分（`recency × importance × relevance`）
 - `core/reflect.js` — 反思 / 压缩（智能遗忘）
-- `core/writeback.js` — 真实写回适配器（沙箱 / 真实路径 + 自动备份）
+- `core/writeback.js` — 真实写回适配器（沙箱 / 自动探测真实路径 + 自动备份）
 - `cli.js` — 一行命令同步
-- `server.js` + `public/index.html` — Web 面板（可视化）
+- `server.js` + `public/index.html` — Web 面板（可视化 + 抽取）
 - `samples/` — 各 agent 的样例记忆文件（demo 用）
 - `FORMAT.md` — **开放格式标准**（任何 agent 都能接入）
 
@@ -84,8 +104,8 @@ MemLocal 把「记忆」定义成一份开放 JSON 规范（`FORMAT.md`），任
 
 ## 质量保障
 
-- `npm test` 跑两套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark）+ `scripts/test-reconcile.js`，CI 全绿。
-- 对账 / 压缩均返回 plan，由调用方决定是否 apply；写回前自动备份——可审计、可回滚。
+- `npm test` 跑三套确定性评测：`scripts/eval.js`（LOCOMO 思路轻量 benchmark）+ `scripts/test-reconcile.js`（对账）+ `scripts/test-extract.js`（抽取 / 路径探测 / 注册表统一），CI 全绿。
+- 对账 / 压缩 / 抽取均返回 plan，由调用方决定是否 apply；写回前自动备份——可审计、可回滚。
 
 ## License
 

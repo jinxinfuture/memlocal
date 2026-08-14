@@ -19,13 +19,13 @@ const retrieve = require('./core/retrieve');
 const reflect = require('./core/reflect');
 const writeback = require('./core/writeback');
 const llmMod = require('./core/llm');
+const extractMod = require('./core/extract');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const EXPORTS_DIR = path.join(ROOT, 'exports');
 const SAMPLES_DIR = path.join(ROOT, 'samples');
 const PUBLIC_DIR = path.join(ROOT, 'public');
-const WORKSPACE = '/Users/oh3r/maxapp';
 
 const PORT = 4173;
 
@@ -80,6 +80,20 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/sync' && req.method === 'POST') {
         const r = doSync();
         return sendJSON(res, 200, r);
+      }
+      if (p === '/api/extract' && req.method === 'POST') {
+        const body = await readBody(req);
+        const text = (body.text || '').trim();
+        if (!text) return sendJSON(res, 400, { error: 'empty text' });
+        const llmExtractor = body.llm ? llmMod.makeExtractor({}) : null;
+        const facts = await extractMod.extract(text, { extractor: llmExtractor || undefined });
+        const s = loadStore();
+        const plan = reconcile.reconcile(s, facts.map(f => ({ content: f.content, type: f.type, source: 'extract', time: Date.now() })), { now: Date.now() });
+        if (body.apply) {
+          reconcile.applyPlan(s, plan);
+          saveStore(s);
+        }
+        return sendJSON(res, 200, { facts, plan: { adds: plan.adds.length, deletes: plan.deletes.length, needsReview: plan.needsReview.length }, applied: !!body.apply });
       }
       if (p === '/api/memory' && req.method === 'POST') {
         const body = await readBody(req);

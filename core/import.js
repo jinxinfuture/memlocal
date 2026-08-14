@@ -10,18 +10,17 @@ const os = require('os');
 const crypto = require('crypto');
 const { loadStore, saveStore } = require('./store');
 const { renderFor } = require('./render');
+const { PLATFORM_TARGETS } = require('./render');
 
 const ROOT = path.join(__dirname, '..');
 const EXPORTS_DIR = path.join(ROOT, 'exports');
 const SAMPLES_DIR = path.join(ROOT, 'samples');
 
-const PLATFORMS = {
-  claude:   { label: 'Claude Code', files: ['CLAUDE.md', 'AGENTS.md'] },
-  cursor:   { label: 'Cursor',      files: ['.cursorrules', '.cursor/rules'] },
-  windsurf: { label: 'Windsurf',    files: ['.windsurfrules'] },
-  chatgpt:  { label: 'ChatGPT',     files: ['memory.json'] },
-  generic:  { label: '通用 Markdown', files: ['MEMORY.md', 'memory.md'] },
-};
+// 平台注册表唯一真相源：render.js 的 PLATFORM_TARGETS（9 平台）
+// PLATFORMS 保持导出以兼容 server.js（files = locations 相对路径，供导入扫描）
+const PLATFORMS = Object.fromEntries(
+  Object.entries(PLATFORM_TARGETS).map(([k, v]) => [k, { label: v.label, files: v.locations }])
+);
 
 function normalizeKey(s) {
   return s.toLowerCase().replace(/[\s.,，。！!?？、;；:：'"'\"()（）\[\]【】\-_/\\]/g, '').trim();
@@ -145,20 +144,14 @@ function doImport() {
 
 function doSync() {
   const store = loadStore();
-  const targets = [
-    { platform: 'claude', filename: 'CLAUDE.md', dir: path.join(EXPORTS_DIR, 'claude') },
-    { platform: 'cursor', filename: '.cursorrules', dir: path.join(EXPORTS_DIR, 'cursor') },
-    { platform: 'windsurf', filename: '.windsurfrules', dir: path.join(EXPORTS_DIR, 'windsurf') },
-    { platform: 'chatgpt', filename: 'memory.json', dir: path.join(EXPORTS_DIR, 'chatgpt') },
-    { platform: 'generic', filename: 'MEMORY.md', dir: path.join(EXPORTS_DIR, 'generic') },
-  ];
   const written = [];
-  for (const t of targets) {
-    fs.mkdirSync(t.dir, { recursive: true });
-    const content = renderFor(store, t.platform);
-    const fp = path.join(t.dir, t.filename);
+  for (const [platform, t] of Object.entries(PLATFORM_TARGETS)) {
+    const dir = path.join(EXPORTS_DIR, t.dir);
+    fs.mkdirSync(dir, { recursive: true });
+    const content = renderFor(store, platform);
+    const fp = path.join(dir, t.filename);
     fs.writeFileSync(fp, content, 'utf8');
-    written.push({ platform: t.platform, label: PLATFORMS[t.platform].label, file: fp, bytes: Buffer.byteLength(content) });
+    written.push({ platform, label: t.label, file: fp, bytes: Buffer.byteLength(content) });
   }
   store.lastSync = Date.now();
   saveStore(store);

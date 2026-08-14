@@ -72,4 +72,58 @@ function makeDeepSeekLLM(opts = {}) {
   };
 }
 
-module.exports = { makeDeepSeekLLM, DEFAULT_BASE, DEFAULT_MODEL };
+/**
+ * 构造一个 async (text) => [{content, type}] | null 的事实抽取器。
+ * 供 cli extract --llm / server /api/extract 使用。
+ * 无 key 时返回 null（调用方回退确定性抽取）。
+ */
+function makeExtractor(opts = {}) {
+  const apiKey = opts.apiKey || process.env.DEEPSEEK_API_KEY || '';
+  if (!apiKey) return null;
+  const baseURL = opts.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE;
+  const model = opts.model || process.env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  const timeoutMs = opts.timeoutMs || 20000;
+
+  return async function deepseekExtract(text) {
+    const prompt = [
+      '你是记忆抽取器。从用户的这段对话/文本中，抽取「值得长期记住」的原子事实。',
+      '规则：只抽取关于用户/其项目/其偏好的持久事实；不抽取一次性任务、寒暄、提问、代码细节。',
+      '每条事实独立、去重、去掉"我"之外的多余主语；type 取 identity|preference|project|context|fact 之一。',
+      '只返回 JSON：{"facts":[{"content":"...","type":"..."}]}。没有值得记的就返回 {"facts":[]}。',
+      '',
+      '文本：\n' + String(text).slice(0, 6000),
+    ].join('\n');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(`${baseURL}/chat/completions`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0,
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      const text2 = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+      if (!text2) return null;
+      const parsed = JSON.parse(text2);
+      const facts = Array.isArray(parsed.facts) ? parsed.facts
+        .filter(f => f && typeof f.content === 'string' && f.content.trim().length >= 2)
+        .map(f => ({ content: f.content.trim(), type: ['identity', 'preference', 'project', 'context', 'fact'].includes(f.type) ? f.type : 'fact' }))
+        : [];
+      return facts;
+    } catch (e) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+module.exports = { makeDeepSeekLLM, makeExtractor, DEFAULT_BASE, DEFAULT_MODEL };

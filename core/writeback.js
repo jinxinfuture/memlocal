@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const storeMod = require('./store');
-const { PLATFORM_TARGETS, renderFor } = require('./render');
+const { PLATFORM_TARGETS, renderFor, detectRealLocation } = require('./render');
 
 function loadConfig() {
   return storeMod.loadConfig();
@@ -35,7 +35,7 @@ function backupFile(fp) {
 
 /**
  * @param {object} store  canonical store
- * @param {object} opts   { targetDir?, real?, dryRun?, platforms? }
+ * @param {object} opts   { targetDir?, real?, dryRun?, platforms?, cwd? }
  * @returns {object} { written:[], wouldWrite:[], backups:[] }
  */
 function applyWrites(store, opts = {}) {
@@ -61,15 +61,18 @@ function applyWrites(store, opts = {}) {
     written.push({ platform, file: fp, bytes: Buffer.byteLength(content) });
   }
 
-  // 真实写回：仅当 opts.real 且 config 显式配置
+  // 真实写回：opts.real 时自动探测各平台真实路径（config.realTargets 显式配置优先），
+  // 探测不到的平台跳过并记录，绝不写进任意路径。
   if (opts.real) {
     const cfg = loadConfig();
-    const realTargets = cfg.realTargets || {};
-    for (const [platform, realPath] of Object.entries(realTargets)) {
+    const detected = {};
+    for (const platform of platforms) {
       const t = PLATFORM_TARGETS[platform];
       if (!t) continue;
+      const fp = detectRealLocation(platform, cfg, { cwd: opts.cwd });
+      if (!fp) continue;
+      detected[platform] = fp;
       const content = renderFor(store, platform);
-      const fp = realPath;
       wouldWrite.push({ platform, file: fp, bytes: Buffer.byteLength(content), real: true });
       if (dryRun) continue;
       fs.mkdirSync(path.dirname(fp), { recursive: true });

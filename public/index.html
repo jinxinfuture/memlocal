@@ -97,6 +97,14 @@
   </div>
 
   <div class="panel">
+    <h2>从文本抽取记忆</h2>
+    <div class="addbar" style="flex-wrap:wrap;">
+      <textarea id="extractInput" rows="2" placeholder="粘贴一段对话/文本，例如：我叫小王，负责记忆层。我讨厌香菜，最近在学 Rust。" style="flex:1; min-width:260px;"></textarea>
+      <button class="primary" id="btnExtract">✨ 抽取并入库</button>
+    </div>
+  </div>
+
+  <div class="panel">
     <h2>同步结果</h2>
     <div id="syncLog" class="log"><div class="empty">尚未同步。点「同步到所有 Agent」从 canonical 反生成各平台记忆文件。</div></div>
   </div>
@@ -110,8 +118,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const PLATFORMS = ['claude','cursor','windsurf','chatgpt','generic'];
-const LABELS = { claude:'Claude Code', cursor:'Cursor', windsurf:'Windsurf', chatgpt:'ChatGPT', generic:'通用', manual:'手动' };
+const PLATFORMS = ['claude','cursor','windsurf','chatgpt','generic','codex','gemini','aider','copilot'];
+const LABELS = { claude:'Claude Code', cursor:'Cursor', windsurf:'Windsurf', chatgpt:'ChatGPT', generic:'通用', codex:'Codex', gemini:'Gemini', aider:'Aider', copilot:'Copilot', manual:'手动' };
 
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 function log(msg, ok){ const el=document.getElementById('actLog'); const d=document.createElement('div'); if(ok)d.className='ok'; d.textContent=(ok?'✓ ':'· ')+msg; el.prepend(d); }
@@ -182,6 +190,19 @@ document.getElementById('btnSync').onclick=async()=>{
   }
   log('已同步到 '+r.written.length+' 个 Agent 的记忆文件', true);
   toast('已同步 '+r.written.length+' 个 Agent');
+};
+
+document.getElementById('btnExtract').onclick=async()=>{
+  const text=document.getElementById('extractInput').value.trim();
+  if(!text){ toast('先粘贴一段文本'); return; }
+  toast('正在抽取事实…');
+  const r=await api('/api/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text, apply:true})});
+  const replaced=r.plan && r.plan.deletes ? r.plan.deletes : 0;
+  log(`从文本抽取 ${r.facts.length} 条记忆（替换 ${replaced} 条旧记忆）`, true);
+  for(const f of r.facts) log(`  [${typeLabel(f.type)}] ${f.content}`);
+  document.getElementById('extractInput').value='';
+  toast(`抽取 ${r.facts.length} 条`);
+  refresh();
 };
 
 const addbar=document.getElementById('addbar');

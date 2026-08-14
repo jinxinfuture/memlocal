@@ -14,6 +14,7 @@ const retrieve = require('./core/retrieve');
 const reflect = require('./core/reflect');
 const writeback = require('./core/writeback');
 const llmMod = require('./core/llm');
+const extractMod = require('./core/extract');
 const { renderFor } = require('./core/render');
 
 function log(...a) { console.log(...a); }
@@ -27,6 +28,28 @@ async function main() {
   const cmd = process.argv[2];
 
   switch (cmd) {
+    case 'init': {
+      const s = store.loadStore();
+      store.saveStore(s); // 确保目录与 store.json 存在
+      const cfg = store.loadConfig();
+      store.saveConfig(cfg); // 确保 config.json 存在
+      log(`已初始化 ${store.storePath()}`);
+      return;
+    }
+    case 'status': {
+      const s = store.loadStore();
+      const { PLATFORM_TARGETS } = require('./core/render');
+      const cfg = store.loadConfig();
+      log(`store: ${store.storePath()} (${s.memories.length} 条记忆)`);
+      log(`平台支持: ${Object.keys(PLATFORM_TARGETS).join(', ')}`);
+      log('真实写回目标:');
+      for (const p of Object.keys(PLATFORM_TARGETS)) {
+        const detected = require('./core/render').detectRealLocation(p, cfg, { cwd: process.cwd() });
+        const explicit = cfg.realTargets && cfg.realTargets[p];
+        if (explicit || detected) log(`  ${p.padEnd(10)} -> ${explicit ? '[config] ' : ''}${detected || '(未探测到)'}`);
+      }
+      return;
+    }
     case 'serve': {
       require('./server.js');
       return;
@@ -37,9 +60,17 @@ async function main() {
       return;
     }
     case 'sync': {
-      const r = imp.doSync();
-      log('同步完成：');
-      for (const w of r.written) log(`  ${w.label.padEnd(12)} -> ${w.file} (${w.bytes}B)`);
+      const dryRun = hasFlag('--dry-run');
+      const real = hasFlag('--real');
+      const platforms = getArg('--platforms') ? getArg('--platforms').split(',').map(s => s.trim()).filter(Boolean) : undefined;
+      const r = writeback.applyWrites(store.loadStore(), { real, dryRun, platforms, cwd: process.cwd() });
+      if (dryRun) {
+        log('[dry-run] 将要写回：');
+        for (const w of r.wouldWrite) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
+      } else {
+        log(`同步完成：written=${r.written.length}, backups=${r.backups.length}`);
+        for (const w of r.written) log(`  ${w.real ? '[真实] ' : ''}${w.file} (${w.bytes}B)`);
+      }
       return;
     }
     case 'export': {
@@ -47,6 +78,33 @@ async function main() {
       const s = store.loadStore();
       const content = renderFor(s, platform);
       log(content);
+      return;
+    }
+    case 'extract': {
+      const text = getArg('--text') || process.argv[3] || '';
+      const file = getArg('--file');
+      let src = text;
+      if (file) {
+        try { src = require('fs').readFileSync(file, 'utf8'); }
+        catch (e) { log('读取文件失败：' + e.message); return; }
+      }
+      if (!src || !src.trim()) { log('用法: memlocal extract --text "对话内容" [--file 文件] [--llm] [--apply]'); return; }
+      const llmExtractor = llmMod.makeExtractor({});
+      if (hasFlag('--llm') && !llmExtractor) log('（未配置 DEEPSEEK_API_KEY，使用确定性抽取）');
+      const facts = await extractMod.extract(src, { extractor: llmExtractor || undefined });
+      log(`抽取到 ${facts.length} 条事实：`);
+      const changes = facts.map(f => ({ content: f.content, type: f.type, source: 'extract', time: Date.now() }));
+      const s = store.loadStore();
+      const plan = reconcile.reconcile(s, changes, { now: Date.now() });
+      for (const f of facts) log(`  [${f.type}] ${f.content}`);
+      if (plan.deletes.length) log(`  对账：替换 ${plan.deletes.length} 条旧记忆`);
+      if (hasFlag('--apply')) {
+        reconcile.applyPlan(s, plan);
+        store.saveStore(s);
+        log('已写入 store（--apply）。执行 memlocal sync 同步到各 agent。');
+      } else {
+        log('（未 --apply，仅预览。加 --apply 入库。）');
+      }
       return;
     }
     case 'search': {
@@ -99,14 +157,17 @@ async function main() {
     }
     default:
       log('MemLocal CLI');
-      log('  node cli.js serve                        启动 HTTP 服务 (:4173)');
-      log('  node cli.js import                       扫描并导入各 agent 记忆到 store');
-      log('  node cli.js sync                         从 store 同步到 exports/');
-      log('  node cli.js export --platform <p>        打印某平台渲染结果');
-      log('  node cli.js search "<q>" [--limit N]     检索打分排序');
-      log('  node cli.js reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
-      log('  node cli.js reflect [--apply]            反思/压缩零散事实');
-      log('  node cli.js writeback [--dry-run] [--real]  写回（默认沙箱）');
+      log('  memlocal init                          初始化 ~/.memlocal（store + config）');
+      log('  memlocal status                        查看统计、已支持平台、真实写回探测');
+      log('  memlocal serve                        启动 HTTP 服务 (:4173)');
+      log('  memlocal import                       扫描并导入各 agent 记忆到 store');
+      log('  memlocal sync [--dry-run] [--real] [--platforms p1,p2]  同步（默认沙箱全部 9 平台；--real 自动探测真实路径+备份）');
+      log('  memlocal extract --text "..." [--file F] [--llm] [--apply]  从文本抽取记忆并入 store');
+      log('  memlocal export --platform <p>        打印某平台渲染结果');
+      log('  memlocal search "<q>" [--limit N]     检索打分排序');
+      log('  memlocal reconcile --content "..." [--apply] [--llm]  提交新事实并对账');
+      log('  memlocal reflect [--apply]            反思/压缩零散事实');
+      log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   }
 }
 
