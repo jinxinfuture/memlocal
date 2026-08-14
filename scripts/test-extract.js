@@ -47,10 +47,10 @@ console.log('\n[3] 平台注册表统一：import.PLATFORMS 与 render.PLATFORM_
   check('每平台有 label/filename/format/locations', Object.values(PLATFORM_TARGETS).every(t => t.label && t.filename && t.format && Array.isArray(t.locations)));
 }
 
-console.log('\n[4] 路径探测：~ 与 {cwd} 展开（注入 home/cwd）');
+console.log('\n[4] 路径探测：~ 与 {cwd} 展开（注入 home/cwd，path.join 兼容 Windows）');
 {
-  check('~ 展开到注入 home', expandRealLocation('~/x.md', { home: '/fake/home' }) === '/fake/home/x.md');
-  check('{cwd} 展开到 cwd', expandRealLocation('{cwd}/x.md', { cwd: '/tmp' }) === '/tmp/x.md');
+  check('~ 展开到注入 home', expandRealLocation('~/x.md', { home: '/fake/home' }) === path.join('/fake/home', 'x.md'));
+  check('{cwd} 展开到 cwd', expandRealLocation('{cwd}/x.md', { cwd: '/tmp' }) === path.join('/tmp', 'x.md'));
 }
 
 console.log('\n[5] 路径探测安全：~ 候选文件不存在时绝不自动创建（防污染 home）');

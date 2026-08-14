@@ -24,13 +24,16 @@ const PLATFORM_TARGETS = {
   copilot:  { label: 'GitHub Copilot', filename: 'copilot-instructions.md', dir: 'copilot',  format: 'md',   locations: ['.github/copilot-instructions.md'], realLocations: ['~/.config/github-copilot/instructions.md', '{cwd}/.github/copilot-instructions.md'] },
 };
 
-// 把 ~ 与 {cwd} 展开成绝对路径（home 可用 opts.home 覆盖，便于测试隔离）
+// 把 ~ 与 {cwd} 展开成绝对路径（home 可用 opts.home 覆盖，便于测试隔离；用 path.join 保证 Windows 分隔符一致）
 function expandRealLocation(loc, opts = {}) {
+  const path = require('path');
   const cwd = opts.cwd || process.cwd();
   const home = opts.home || require('os').homedir();
-  let p = String(loc).replace('{cwd}', cwd);
-  if (p.startsWith('~/')) p = home + p.slice(1);
-  return p;
+  const s = String(loc);
+  if (s.startsWith('~/')) return path.join(home, s.slice(2));
+  if (s.startsWith('{cwd}/')) return path.join(cwd, s.slice(6));
+  if (s === '{cwd}') return cwd;
+  return s;
 }
 
 // 自动探测某平台的真实记忆路径（安全策略：绝不往用户主目录撒新文件）
