@@ -1,0 +1,13 @@
+{
+  "realTargets": {
+    "claude":   "/Users/you/.claude/CLAUDE.md",
+    "cursor":   "/Users/you/project/.cursorrules",
+    "windsurf": "/Users/you/project/.windsurfrules",
+    "chatgpt":  "/Users/you/project/memory.json",
+    "generic":  "/Users/you/project/MEMORY.md",
+    "codex":    "/Users/you/project/AGENTS.md",
+    "gemini":   "/Users/you/project/GEMINI.md",
+    "aider":    "/Users/you/project/CONVENTIONS.md",
+    "copilot":  "/Users/you/project/.github/copilot-instructions.md"
+  }
+}

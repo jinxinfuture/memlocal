@@ -30,6 +30,20 @@ const ANTONYM_DOMAINS = [
   { dim: 'caffeine', pos: ['咖啡', '浓茶', '能量饮料'], neg: ['茶', '水', '戒咖啡', '无咖啡因'] },
 ];
 
+// 实体组：同一「槽位」的不同取值（如编辑器：Vim ↔ Cursor）。提及同组不同成员 =>
+// 视为同一事实的新取值（切换），走 update / 替换，而非无关新事实。
+const ENTITY_GROUPS = [
+  { dim: 'editor', members: ['vim', 'emacs', 'neovim', 'cursor', 'vscode', 'code', 'jetbrains', 'sublime', 'idea', 'webstorm'] },
+  { dim: 'os',     members: ['macos', 'mac', 'osx', 'windows', 'win', 'linux', 'ubuntu', 'arch'] },
+  { dim: 'lang',   members: ['python', 'javascript', 'typescript', 'go', 'golang', 'rust', 'java', 'c++', 'cpp', 'ruby'] },
+];
+
+const ENTITY_LOOKUP = (() => {
+  const m = new Map();
+  for (const g of ENTITY_GROUPS) for (const mem of g.members) m.set(mem, g.dim);
+  return m;
+})();
+
 const STOP = new Set(['用户', '我', '他', '她', '它', '我们', '你们', '他们', '这', '那', '的', '了', '也', '都', '就',
   '很', '非常', '比较', '有点', '目前', '平时', '一般', '通常', '总是', '经常', '偶尔', '从来', '一直', '还是',
   '不', '没', '有', '是', '在', '会', '要', '想', '说', '做', '去', '上', '下', '中', '和', '与', '及']);
@@ -95,6 +109,27 @@ function domainOf(s) {
   return null;
 }
 
+// 实体槽位识别：返回 [{dim, member}]（小写匹配）
+function entitiesOf(s) {
+  const n = normalize(s);
+  const out = [];
+  for (const [member, dim] of ENTITY_LOOKUP) {
+    if (n.includes(member)) out.push({ dim, member });
+  }
+  return out;
+}
+
+// 同槽位不同取值 => 切换（如 vim -> cursor）
+function entitySwitchOf(a, b) {
+  const ea = entitiesOf(a), eb = entitiesOf(b);
+  const mapA = new Map(ea.map(e => [e.dim, e.member]));
+  const mapB = new Map(eb.map(e => [e.dim, e.member]));
+  for (const [dim, member] of mapA) {
+    if (mapB.has(dim) && mapB.get(dim) !== member) return dim;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // 关系判定：null | 'contradiction' | 'update'
 // ---------------------------------------------------------------------------
@@ -109,6 +144,8 @@ function relationOf(a, b) {
 
   // 矛盾：反向极性 + (关键词重叠 或 同反义域异侧)
   if (pa !== 0 && pb !== 0 && pa * pb < 0) {
+    // 反向极性 + 关键词重叠 + 状态反转词 => 同一事实的状态翻转（如 喝咖啡→戒咖啡），判为 update
+    if (overlap && (hasReversal(a) || hasReversal(b))) return 'update';
     if (overlap) return 'contradiction';
     if (sameDomain) {
       const aSide = da.pos.some(w => a.includes(w)) ? 'pos' : da.neg.some(w => a.includes(w)) ? 'neg' : null;
@@ -120,7 +157,74 @@ function relationOf(a, b) {
   // 更新：共享关键词 + 任一方含状态反转词（同一事实的新值）
   if (overlap && (hasReversal(a) || hasReversal(b))) return 'update';
 
+  // 更新：同实体槽位不同取值（如 vim -> cursor / macos -> windows），视为切换
+  if (entitySwitchOf(a, b)) return 'update';
+
   return null;
+}
+
+// 异步版本：支持 await opts.llmAsync(exMem, incoming) 做疑难决策
+async function reconcileAsync(store, changes, opts = {}) {
+  const now = opts.now || Date.now();
+  const confThresh = opts.confidenceThreshold != null ? opts.confidenceThreshold : 0.5;
+  const llm = opts.llmAsync || null; // async (exMem, incoming) => {winner,confidence,reason} | null
+  const adds = [], deletes = [], needsReview = [], reasons = [];
+  const existing = store.memories || [];
+
+  for (const ch of changes) {
+    const content = (ch.content || '').trim();
+    if (!content) continue;
+    const time = ch.time != null ? ch.time : now;
+    const source = ch.source || 'manual';
+
+    const exact = existing.find(m => !m.stale && normalize(m.content) === normalize(content));
+    if (exact) { reasons.push({ content, action: 'skip-exact', id: exact.id }); continue; }
+
+    const conflicts = detectConflicts(existing, content);
+    if (conflicts.length === 0) {
+      const conf = sourceWeight(source);
+      if (conf < confThresh) {
+        needsReview.push({ content, source, suggested: 'add', reason: 'low-confidence' });
+        reasons.push({ content, action: 'needsReview' });
+        continue;
+      }
+      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      reasons.push({ content, action: 'add', confidence: conf });
+      continue;
+    }
+
+    let decision = null;
+    if (llm) {
+      const exMem = existing.find(m => m.id === conflicts[0].existingId);
+      try { decision = await llm(exMem, { content, source, time }); } catch (e) { decision = null; }
+    }
+    if (!decision) {
+      const exMem = existing.find(m => m.id === conflicts[0].existingId);
+      const exTime = exMem.updatedAt || exMem.createdAt || 0;
+      const incomingNewer = time >= exTime;
+      decision = {
+        winner: incomingNewer ? 'incoming' : 'existing',
+        confidence: incomingNewer ? sourceWeight(source) : (exMem.confidence || 0.7),
+        reason: incomingNewer ? 'incoming-is-newer' : 'existing-is-newer',
+      };
+    }
+
+    if (decision.winner === 'incoming') {
+      const conf = decision.confidence != null ? decision.confidence : sourceWeight(source);
+      if (conf < confThresh) {
+        needsReview.push({ content, source, conflicts, suggested: 'update', reason: 'low-confidence-conflict' });
+        reasons.push({ content, action: 'needsReview' });
+        continue;
+      }
+      for (const c of conflicts) deletes.push({ id: c.existingId, reason: 'superseded-by-incoming', relation: c.relation });
+      adds.push({ id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf });
+      reasons.push({ content, action: 'replace', replaces: conflicts.map(c => c.existingId), relation: conflicts[0].relation, confidence: conf, reason: decision.reason });
+    } else {
+      needsReview.push({ content, source, conflicts, suggested: 'skip', reason: 'existing-wins' });
+      reasons.push({ content, action: 'keep-existing', reason: decision.reason });
+    }
+  }
+  return { adds, deletes, needsReview, reasons };
 }
 
 // ---------------------------------------------------------------------------
@@ -229,4 +333,4 @@ function applyPlan(store, plan) {
   return store;
 }
 
-module.exports = { reconcile, applyPlan, detectConflicts, relationOf, polarityOf, keywordsOf, domainOf, sourceWeight };
+module.exports = { reconcile, reconcileAsync, applyPlan, detectConflicts, relationOf, polarityOf, keywordsOf, domainOf, entitiesOf, entitySwitchOf, sourceWeight };

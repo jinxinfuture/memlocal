@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 exports/
 data/store.json
+data/config.json
+writes/
+*.bak
+.memlocal/
