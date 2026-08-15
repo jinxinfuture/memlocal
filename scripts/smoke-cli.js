@@ -128,6 +128,12 @@ console.log('\n[14] --version / --help');
   check('--help 输出帮助', h.includes('MemLocal CLI'));
 }
 
+console.log('\n[15] doctor');
+{
+  const out = run('doctor');
+  check('doctor 输出诊断', out.includes('诊断完成') && out.includes('store'));
+}
+
 // 清理
 fs.rmSync(HOME, { recursive: true, force: true });
 

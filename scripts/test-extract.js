@@ -167,5 +167,31 @@ console.log('\n[13] extract LLM 畸形回退：extractor 返回垃圾时走确�
   }).catch(() => {});
 }
 
+console.log('\n[14] 事件记忆 keepEvents：默认过滤，keepEvents 保留带 TTL');
+{
+  const { extractDeterministic } = require('../core/extract');
+  const defaultFacts = extractDeterministic('我们团队下周发版。我讨厌香菜。');
+  check('默认过滤事件句', !defaultFacts.some(f => f.content.includes('发版')));
+  const eventFacts = extractDeterministic('我们团队下周发版。我讨厌香菜。', { keepEvents: true });
+  check('keepEvents 保留事件句', eventFacts.some(f => f.content.includes('发版') && f.event === true));
+  check('普通句无 event 标记', !eventFacts.some(f => f.content.includes('香菜') && f.event));
+}
+
+console.log('\n[15] 过期记忆 reflect 归档（新鲜度）');
+{
+  const { reflectPlan } = require('../core/reflect');
+  const now = Date.now();
+  const store = { memories: [
+    { id: 'e1', content: '我们团队下周发版。', type: 'project', source: 'extract', createdAt: now, updatedAt: now, confidence: 0.75, expiresAt: now - 1000 }, // 已过期
+    { id: 'e2', content: '我讨厌香菜。', type: 'preference', source: 'manual', createdAt: now, updatedAt: now, confidence: 0.9 },
+    { id: 'e3', content: '我喜欢香菜。', type: 'preference', source: 'manual', createdAt: now, updatedAt: now, confidence: 0.9 },
+    { id: 'e4', content: '我不吃香菜。', type: 'preference', source: 'manual', createdAt: now, updatedAt: now, confidence: 0.9 },
+  ] };
+  const plan = reflectPlan(store, { now });
+  check('过期记忆列入归档', plan.expiredIds.includes('e1'));
+  check('过期记忆不参与聚类摘要', !plan.clusters.some(c => c.ids.includes('e1')));
+  check('有效记忆仍可聚类', plan.archiveIds.length >= 3); // e1 + 香菜簇 3 条
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail === 0 ? 0 : 1);

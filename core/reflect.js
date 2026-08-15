@@ -62,8 +62,16 @@ function summarize(cluster, topic) {
 
 function reflectPlan(store, opts = {}) {
   const min = opts.minCluster || MIN_CLUSTER;
-  const clusters = cluster(store.memories).filter(c => c.length >= min);
-  const archiveIds = [];
+  const now = opts.now || Date.now();
+  // 过期记忆（expiresAt < now）不参与聚类，直接列入归档
+  const expiredIds = [];
+  const activeForCluster = (store.memories || []).filter(m => {
+    if (m.archived) return false;
+    if (m.expiresAt && m.expiresAt < now) { expiredIds.push(m.id); return false; }
+    return true;
+  });
+  const clusters = cluster(activeForCluster).filter(c => c.length >= min);
+  const archiveIds = [...expiredIds];
   const summaries = [];
   const details = [];
   for (const c of clusters) {
@@ -73,12 +81,12 @@ function reflectPlan(store, opts = {}) {
     archiveIds.push(...c.map(m => m.id));
     summaries.push({
       id: summaryId, content: text, type: 'summary', source: 'reflect',
-      sourceFile: '', createdAt: opts.now || Date.now(), updatedAt: opts.now || Date.now(),
+      sourceFile: '', createdAt: now, updatedAt: now,
       confidence: 0.9, archived: false,
     });
     details.push({ topic, ids: c.map(m => m.id), summaryId });
   }
-  return { clusters: details, archiveIds, summaries };
+  return { clusters: details, archiveIds, expiredIds, summaries };
 }
 
 function applyPlan(store, plan) {

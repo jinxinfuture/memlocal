@@ -12,7 +12,7 @@ Claude Code / Cursor / Windsurf / Codex / Gemini / Aider / GitHub Copilot / Chat
 
 > 设计原则：**别在单个代码平台的院子里种菜，去种连接所有院子的那条路。**
 
-**文档**：[使用教程](docs/usage.md) · [架构详解](docs/architecture.md) · [记忆 vs 文档](docs/design-memory-vs-document.md) · [性能基准](docs/bench.md) · [开放格式](FORMAT.md)
+**文档**：[使用教程](docs/usage.md) · [架构详解](docs/architecture.md) · [记忆 vs 文档](docs/design-memory-vs-document.md) · [性能基准](docs/bench.md) · [HTTP API](docs/api.md) · [开放格式](FORMAT.md)
 
 ---
 
@@ -74,12 +74,13 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | `memlocal init` | 初始化 `~/.memlocal`（store + 默认 config） |
 | `memlocal import` | 扫描 cwd + 用户主目录 + 样例，聚合各 agent 记忆到 store（去重） |
 | `memlocal sync [--dry-run] [--real] [--platforms p1,p2]` | 同步到全部 9 平台。默认沙箱 `~/.memlocal/writes/`；`--real` 自动探测各 agent 真实记忆路径（`~/.claude/CLAUDE.md`、项目 `.cursorrules` 等），写前自动 `.bak` 备份；`--platforms` 可只同步指定平台 |
-| `memlocal extract --text "..." [--file F] [--llm] [--apply]` | 从一段对话/文本自动抽取「值得记住的原子事实」并入库（过滤提问/指令/语气词/临时日程；`--llm` 用 LLM 抽取，未配 key 自动回退确定性） |
+| `memlocal extract --text "..." [--file F] [--llm] [--events] [--apply]` | 从一段对话/文本自动抽取「值得记住的原子事实」并入库（过滤提问/指令/语气词/临时日程；`--llm` 用 LLM 抽取，未配 key 自动回退确定性；`--events` 保留临时事件，7 天 TTL 自动过期） |
 | `memlocal export --platform claude` | 打印某平台的渲染结果 |
 | `memlocal search "<q>" [--limit N]` | 检索打分排序（`recency × importance × relevance`） |
 | `memlocal reconcile --content "..." [--apply] [--llm]` | 提交新事实并对账（可选 LLM 增强） |
-| `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要（智能遗忘） |
+| `memlocal reflect [--apply]` | 反思 / 压缩零散事实为摘要；归档已过期（`expiresAt` 到期）的记忆 |
 | `memlocal audit [--limit N]` | 查看记忆操作审计日志（透明可控） |
+| `memlocal doctor` | 诊断健康：store / 真实写回路径 / 备份 / LLM / 数据目录 / 记忆质量 |
 | `memlocal config get\|set <key> <value>` | 查看/设置配置（如 `deepseek.apiKey sk-xxx`、`realTargets.claude ~/.claude/CLAUDE.md`） |
 | `memlocal backup` / `backups` / `restore --file <备份>` | 创建 / 列出 / 恢复备份（gzip 压缩到 `~/.memlocal/backups/`，恢复前自动另存安全备份） |
 | `memlocal export-all` | 导出全部记忆（合并 Markdown + 原始 JSON，可迁移到其它工具） |

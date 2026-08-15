@@ -49,8 +49,9 @@ function extractDeterministic(text, opts = {}) {
     if (clean.length > 200) continue;                     // 太长（可能是整段话）
     if (NOISE_RE.test(clean)) continue;                   // 语气词
     if (QUESTION_RE.test(clean)) continue;                // 提问/指令
-    if (EVENT_RE.test(clean)) continue;                   // 临时日程/事件
     if (/^\s*(refactor|fix|feat|todo|TODO|测试|调试|报错|error|bug)\b/i.test(clean)) continue; // 纯技术动作
+    const isEvent = EVENT_RE.test(clean);                 // 临时日程/事件
+    if (isEvent && !opts.keepEvents) continue;            // 默认过滤临时事件
     const hasSubject = SUBJECT_HINTS.some(h => clean.includes(h));
     const hasStrong = STRONG_HINTS.some(h => clean.toLowerCase().includes(h));
     if (!hasSubject && !hasStrong) continue;              // 与用户无关
@@ -58,7 +59,7 @@ function extractDeterministic(text, opts = {}) {
     if (seen.has(key)) continue;
     seen.add(key);
     const { inferType } = require('./util');
-    out.push({ content: clean, type: inferType(clean) });
+    out.push({ content: clean, type: inferType(clean), event: isEvent || undefined });
   }
   return out;
 }
@@ -78,4 +79,4 @@ async function extract(text, opts = {}) {
   return extractDeterministic(text, opts);
 }
 
-module.exports = { extract, extractDeterministic, splitSentences };
+module.exports = { extract, extractDeterministic, splitSentences, EVENT_RE, EVENT_TTL_MS: 7 * 24 * 3600 * 1000 };

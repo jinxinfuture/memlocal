@@ -9,6 +9,7 @@
 
 const store = require('./core/store');
 const path = require('path');
+const fs = require('fs');
 const imp = require('./core/import');
 const reconcile = require('./core/reconcile');
 const retrieve = require('./core/retrieve');
@@ -17,7 +18,7 @@ const writeback = require('./core/writeback');
 const llmMod = require('./core/llm');
 const extractMod = require('./core/extract');
 const backupMod = require('./core/backup');
-const { renderFor } = require('./core/render');
+const { renderFor, PLATFORM_TARGETS, detectRealLocation } = require('./core/render');
 const { addAudit } = store;
 
 function log(...a) { console.log(...a); }
@@ -48,6 +49,7 @@ function printHelp() {
   log('  memlocal watch [--interval N] [--real]  监听各 agent 记忆文件变化，自动导入+同步');
   log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   log('  memlocal --version / --help           版本 / 帮助');
+  log('  memlocal doctor                       诊断：store/路径/备份/LLM/质量 健康检查');
 }
 
 async function main() {
@@ -151,6 +153,54 @@ async function main() {
       log(content);
       return;
     }
+    case 'doctor': {
+      const s = store.loadStore();
+      const cfg = store.loadConfig();
+      const results = [];
+      const check = (name, ok, detail) => results.push({ name, ok, detail });
+
+      // 1. store 健康
+      check('store 可读且为 v' + s.version, !!s && Array.isArray(s.memories), `${(s.memories || []).length} 条记忆`);
+      check('audit 日志', Array.isArray(s.audit) && s.audit.length > 0, `${(s.audit || []).length} 条记录`);
+
+      // 2. 9 平台真实路径探测
+      const detected = [];
+      for (const p of Object.keys(PLATFORM_TARGETS)) {
+        const fp = detectRealLocation(p, cfg, { cwd: process.cwd(), home: store.homeDir() });
+        if (fp) detected.push({ p, fp });
+      }
+      check('真实写回路径探测', detected.length >= 3, `${detected.length}/9 平台探测到：${detected.slice(0, 3).map(d => d.p).join(', ')}${detected.length > 3 ? '...' : ''}`);
+
+      // 3. 备份状态
+      const bks = backupMod.listBackups();
+      check('备份存在', bks.length > 0, `${bks.length} 个备份${bks[0] ? '（最新 ' + path.basename(bks[0].file) + '）' : ''}`);
+
+      // 4. LLM 配置
+      const hasLLM = !!(cfg.deepseek && cfg.deepseek.apiKey) || !!process.env.DEEPSEEK_API_KEY;
+      check('LLM 配置', hasLLM, hasLLM ? '已配置（extract/reconcile --llm 可用）' : '未配置（确定性模式，--llm 自动回退）');
+
+      // 5. 数据目录
+      const home = store.homeDir();
+      let size = 0;
+      try {
+        const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else size += fs.statSync(fp).size; } };
+        walk(home);
+      } catch (e) {}
+      check('数据目录', fs.existsSync(home), `${home}（${(size / 1024).toFixed(1)} kB）`);
+
+      // 6. 记忆质量
+      const mems = s.memories || [];
+      const lowConf = mems.filter(m => (m.confidence || 0) < 0.6).length;
+      const expired = mems.filter(m => m.expiresAt && m.expiresAt < Date.now()).length;
+      check('记忆质量', lowConf === 0 && expired === 0, `低置信 ${lowConf} 条，已过期 ${expired} 条`);
+
+      for (const r of results) {
+        log(`  ${r.ok ? '✅' : '⚠️'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`);
+      }
+      const okCount = results.filter(r => r.ok).length;
+      log(`\n诊断完成：${okCount}/${results.length} 项正常。${okCount === results.length ? '一切就绪！' : '详情见上（非致命项不影响使用）。'}`);
+      return;
+    }
     case 'config': {
       const action = process.argv[3]; // get | set
       if (action === 'set') {
@@ -238,9 +288,15 @@ async function main() {
       if (!src || !src.trim()) { log('用法: memlocal extract --text "对话内容" [--file 文件] [--llm] [--apply]'); return; }
       const llmExtractor = llmMod.makeExtractor({});
       if (hasFlag('--llm') && !llmExtractor) log('（未配置 DEEPSEEK_API_KEY，使用确定性抽取）');
-      const facts = await extractMod.extract(src, { extractor: llmExtractor || undefined });
+      const keepEvents = hasFlag('--events');
+      const facts = await extractMod.extract(src, { extractor: llmExtractor || undefined, keepEvents });
       log(`抽取到 ${facts.length} 条事实：`);
-      const changes = facts.map(f => ({ content: f.content, type: f.type, source: 'extract', time: Date.now() }));
+      const ttl = extractMod.EVENT_TTL_MS;
+      const changes = facts.map(f => {
+        const ch = { content: f.content, type: f.type, source: 'extract', time: Date.now() };
+        if (f.event) ch.expiresAt = Date.now() + ttl; // 事件记忆短 TTL
+        return ch;
+      });
       const s = store.loadStore();
       const plan = reconcile.reconcile(s, changes, { now: Date.now() });
       for (const f of facts) log(`  [${f.type}] ${f.content}`);

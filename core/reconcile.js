@@ -195,7 +195,7 @@ async function reconcileAsync(store, changes, opts = {}) {
         reasons.push({ content, action: 'needsReview' });
         continue;
       }
-      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf, expiresAt: ch.expiresAt };
       adds.push(mem);
       exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'add', confidence: conf });
@@ -226,7 +226,7 @@ async function reconcileAsync(store, changes, opts = {}) {
         continue;
       }
       for (const c of conflicts) deletes.push({ id: c.existingId, reason: 'superseded-by-incoming', relation: c.relation });
-      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf, expiresAt: ch.expiresAt };
       adds.push(mem);
       exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'replace', replaces: conflicts.map(c => c.existingId), relation: conflicts[0].relation, confidence: conf, reason: decision.reason });
@@ -356,7 +356,7 @@ function reconcile(store, changes, opts = {}) {
         reasons.push({ content, action: 'needsReview' });
         continue;
       }
-      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf, expiresAt: ch.expiresAt };
       adds.push(mem);
       exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'add', confidence: conf });
@@ -388,7 +388,7 @@ function reconcile(store, changes, opts = {}) {
         continue;
       }
       for (const c of conflicts) deletes.push({ id: c.existingId, reason: 'superseded-by-incoming', relation: c.relation });
-      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf };
+      const mem = { id: newId(), content, type: ch.type || 'fact', source, sourceFile: ch.sourceFile || '', createdAt: time, updatedAt: time, confidence: conf, expiresAt: ch.expiresAt };
       adds.push(mem);
       exactIndex.set(cache.norm(content), mem);
       reasons.push({ content, action: 'replace', replaces: conflicts.map(c => c.existingId), relation: conflicts[0].relation, confidence: conf, reason: decision.reason });
