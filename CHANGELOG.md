@@ -2,6 +2,25 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-08-15
+
+### 新增功能
+- **`memlocal doctor` 诊断命令**：一键检查 store 健康 / 9 平台真实写回路径 / 备份状态 / LLM 配置 / 数据目录 / 记忆质量（✅/⚠️/❌ 报告）。
+- **记忆新鲜度（过期/降权）**：记忆支持 `expiresAt` 字段；`extract --events` 保留临时事件（7 天 TTL 自动过期）；`reflect` 自动归档过期记忆（不参与聚类摘要）。记忆不再永久腐化。
+- **`memlocal --version` / `--help`**：标准 CLI 版本号与完整帮助。
+- **HTTP API 文档** `docs/api.md`：13 个端点的完整参考 + curl/Node 集成示例，任何 agent 可通过 HTTP 读写统一记忆。
+
+### 改进
+- **server/CLI 同步行为统一**：`/api/sync` 改走 `writeback.applyWrites`（沙箱 `~/.memlocal/writes/`，与 CLI 一致），支持 real/dry-run/platforms；清理 server.js 死代码（DATA_DIR/EXPORTS_DIR/doSync）。
+- **extract 英文支持**：`splitSentences` 支持英文句点切分（修复英文整句被当一条导致误过滤）；英文主语/偏好/提问模式。
+- **Web 面板**：顶部显示上次导入/同步时间。
+- **examples/**：真实使用示例（workflow.sh 可执行 + 7 个场景）。
+- **npm 发布打包**：files 补 docs/CHANGELOG，37 文件 47.7kB。
+
+### 测试
+- **171 项全绿**（eval 13 + reconcile 19 + extract 48 + store 17 + writeback 15 + smoke-cli 22 + demo 19 + smoke-api 18）。
+- **CI 平台矩阵**：macOS / Windows / Linux × Node 20/22 全绿（修 Windows 路径分隔符与测试 home 注入）。
+
 ## [0.3.0] - 2026-08-15
 
 ### 性能

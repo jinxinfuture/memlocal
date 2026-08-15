@@ -1,6 +1,6 @@
 {
   "name": "memlocal",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-app, local-first, user-owned unified memory layer for code agents. One source of truth, synced to every agent's native memory file.",
   "bin": {
     "memlocal": "cli.js"

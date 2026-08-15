@@ -12,6 +12,8 @@ Your memory is never locked inside a single platform.
 
 > Design principle: **Don't plant crops in one platform's garden — build the road that connects all gardens.**
 
+**Docs**: [Usage guide](docs/usage.md) · [Architecture](docs/architecture.md) · [Memory vs Document](docs/design-memory-vs-document.md) · [Benchmark](docs/bench.md) · [HTTP API](docs/api.md) · [Open format](FORMAT.md)
+
 ---
 
 ## Why it exists (moat)
@@ -74,17 +76,19 @@ Daily loop: `memlocal import && memlocal sync --real`
 | `memlocal status` | Store stats, supported platforms, real write-back detection |
 | `memlocal import` | Scan cwd + home + samples, aggregate agent memories into store (dedup) |
 | `memlocal sync [--dry-run] [--real] [--platforms p1,p2]` | Sync to all 9 platforms. Default sandbox; `--real` auto-detects real paths + `.bak` backup |
-| `memlocal extract --text "..." [--file F] [--llm] [--apply]` | Extract atomic facts from a conversation/text (filters questions/commands/filler/temporary events) |
+| `memlocal extract --text "..." [--file F] [--llm] [--events] [--apply]` | Extract atomic facts from a conversation/text (filters questions/commands/filler/temporary events; `--events` keeps temporary events with a 7-day TTL) |
 | `memlocal watch [--interval N] [--real]` | Watch agent memory files for changes, auto import + sync |
 | `memlocal export --platform claude` | Print rendered output for one platform |
 | `memlocal search "<q>" [--limit N]` | Ranked retrieval (`recency × importance × relevance`) |
 | `memlocal reconcile --content "..." [--apply] [--llm]` | Submit a new fact and reconcile (optional LLM enhancement) |
-| `memlocal reflect [--apply]` | Reflect/compress scattered facts into summaries (intelligent forgetting) |
+| `memlocal reflect [--apply]` | Reflect/compress scattered facts into summaries; archives expired memories (intelligent forgetting) |
 | `memlocal audit [--limit N]` | View audit log of every write operation |
+| `memlocal doctor` | Diagnose health: store / real write-back paths / backups / LLM config / data dir / memory quality |
 | `memlocal config get\|set <key> <value>` | View/set config (e.g. `deepseek.apiKey sk-xxx`, `realTargets.claude ~/.claude/CLAUDE.md`) |
 | `memlocal backup` / `backups` / `restore --file <backup>` | Create / list / restore backups (gzip, auto safety backup before restore) |
 | `memlocal export-all` | Export all memories (merged Markdown + raw JSON, portable) |
 | `memlocal serve` | Start Web panel (default `:4173`: extract, search, audit, write-back preview) |
+| `memlocal --version` / `--help` | Version / help |
 
 ## Data location
 
@@ -121,15 +125,16 @@ Daily loop: `memlocal import && memlocal sync --real`
 - `core/import.js` — parse (Markdown / .mdc / ChatGPT JSON) + scan real locations + dedup merge (single implementation)
 - `core/render.js` — canonical → per-agent formats (9 platforms) + real-path detection (single source of truth)
 - `core/reconcile.js` — reconciliation engine (contradiction/update/entity switch + time reasoning + confidence gating) + `core/llm.js` (LLM layer, auto-fallback to deterministic without key)
-- `core/extract.js` — text → atomic facts (deterministic fallback + optional LLM), filters questions/commands/temporary events
+- `core/extract.js` — text → atomic facts (deterministic fallback + optional LLM), filters questions/commands/temporary events; `--events` keeps events with TTL
 - `core/retrieve.js` — ranked retrieval (`recency × importance × relevance`)
-- `core/reflect.js` — reflection/compression (intelligent forgetting)
+- `core/reflect.js` — reflection/compression (intelligent forgetting) + expired-memory archival
 - `core/writeback.js` — write-back adapter (sandbox / auto-detect real paths + backup)
 - `core/backup.js` — backup / restore / export (gzip)
-- `cli.js` — one-line CLI (init/status/import/sync/extract/watch/...)
+- `cli.js` — one-line CLI (init/status/import/sync/extract/watch/doctor/...)
 - `server.js` + `public/index.html` — Web panel (search / extract / audit / write-back preview)
 - `samples/` — sample memory files for all 9 platforms (demo)
 - `FORMAT.md` — **open format standard** (any agent can integrate)
+- `docs/api.md` — HTTP API reference (13 endpoints) for agent integration
 - `AGENTS.md` — collaboration guide for any code agent entering this repo
 
 ## Open format standard
