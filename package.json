@@ -7,7 +7,7 @@
   },
   "main": "cli.js",
   "scripts": {
-    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js && node scripts/test-writeback.js && node scripts/smoke-cli.js && node scripts/demo.js && node scripts/smoke-api.js",
+    "test": "node scripts/eval.js && node scripts/test-reconcile.js && node scripts/test-extract.js && node scripts/test-store.js && node scripts/test-writeback.js && node scripts/smoke-cli.js && node scripts/demo.js && node scripts/smoke-api.js && node scripts/verify-ui.js",
     "serve": "node server.js",
     "memlocal": "node cli.js",
     "bench": "node scripts/bench.js",
