@@ -2,6 +2,19 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-08-16
+
+### 新增功能
+- **自动发布工作流**（`.github/workflows/release.yml`）：`push v*` tag → 自动跑测试 → `npm publish` → 安装验证 → 建 GitHub Release。发布流程简化为「打 tag 即发布」（首次需在 GitHub 配置 `NPM_TOKEN` secret）。
+- **shell 自动补全**：`memlocal completion bash|zsh [--install]`，支持命令与 flag 补全（zsh/bash 语法均验证通过）。
+- **记忆版本化**：`memlocal git-export [--repo]` 把 store 快照提交到 git 仓库，`git log` 可回溯任意历史版本——「用户拥有数据」的极致落地。
+
+### 文档
+- `docs/RELEASING.md` 重写为「打 tag 即发布」简化流程（含 NPM_TOKEN 一次性配置）。
+
+### 测试
+- smoke-cli 扩到 26 项（completion/git-export 断言）；**194 项全绿**（9 套）。
+
 ## [0.4.0] - 2026-08-15
 
 ### 新增功能

@@ -12,7 +12,7 @@ Claude Code / Cursor / Windsurf / Codex / Gemini / Aider / GitHub Copilot / Chat
 
 > 设计原则：**别在单个代码平台的院子里种菜，去种连接所有院子的那条路。**
 
-**文档**：[使用教程](docs/usage.md) · [架构详解](docs/architecture.md) · [记忆 vs 文档](docs/design-memory-vs-document.md) · [性能基准](docs/bench.md) · [HTTP API](docs/api.md) · [开放格式](FORMAT.md)
+**文档**：[快速开始](docs/quickstart.md) · [使用教程](docs/usage.md) · [架构详解](docs/architecture.md) · [记忆 vs 文档](docs/design-memory-vs-document.md) · [性能基准](docs/bench.md) · [HTTP API](docs/api.md) · [开放格式](FORMAT.md)
 
 ---
 
@@ -38,11 +38,13 @@ npm install -g memlocal      # 或临时用：npx memlocal
 ```bash
 git clone https://github.com/jinxinfuture/memlocal.git
 cd memlocal
-npm test                     # 先跑测试（4 套，全绿）
+npm test                     # 先跑测试（9 套，全绿）
 node cli.js init             # 或 npm run memlocal -- init
 node cli.js import && node cli.js sync --real
 node cli.js serve            # Web 面板 :4173
 ```
+
+> 5 分钟上手版见 [docs/quickstart.md](docs/quickstart.md)。
 
 ### 发布到 npm（维护者）
 
