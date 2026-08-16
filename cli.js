@@ -46,10 +46,12 @@ function printHelp() {
   log('  memlocal backups                      列出可用备份');
   log('  memlocal restore --file <备份>         从备份恢复（当前状态先另存安全备份）');
   log('  memlocal export-all                   导出记忆（合并 Markdown + 原始 JSON）');
+  log('  memlocal git-export [--repo <目录>]   记忆版本化：提交快照到 git（可回溯历史）');
   log('  memlocal watch [--interval N] [--real]  监听各 agent 记忆文件变化，自动导入+同步');
   log('  memlocal writeback [--dry-run] [--real]  写回（默认沙箱）');
   log('  memlocal --version / --help           版本 / 帮助');
   log('  memlocal doctor                       诊断：store/路径/备份/LLM/质量 健康检查');
+  log('  memlocal completion bash|zsh [--install]  shell 自动补全（--install 写入 ~/.memlocal）');
 }
 
 async function main() {
@@ -201,6 +203,44 @@ async function main() {
       log(`\n诊断完成：${okCount}/${results.length} 项正常。${okCount === results.length ? '一切就绪！' : '详情见上（非致命项不影响使用）。'}`);
       return;
     }
+    case 'completion': {
+      const shell = process.argv[3] || 'bash';
+      const install = hasFlag('--install');
+      const cmds = 'init status serve import sync extract export search reconcile reflect config audit backup backups restore export-all watch writeback doctor --version --help';
+      const flags = '--real --dry-run --platforms --text --file --llm --events --apply --limit --content --interval --key --value';
+      if (shell === 'zsh') {
+        const zsh = `#compdef memlocal
+# MemLocal zsh 补全（memlocal completion zsh）
+_memlocal() {
+  local -a commands
+  commands=(${cmds.split(' ').map(c => `'${c}'`).join(' ')})
+  _arguments '1:command:->cmd' '*:flag:->flag' && return
+  case $state in
+    cmd) _describe 'command' commands ;;
+    flag) compadd -- ${flags} ;;
+  esac
+}
+compdef _memlocal memlocal`;
+        if (install) { const f = path.join(store.homeDir(), 'completion.zsh'); fs.writeFileSync(f, zsh); log('已写入 ' + f + '\n加到 ~/.zshrc:  source ' + f); }
+        else log(zsh);
+      } else {
+        const bash = `# MemLocal bash 补全（memlocal completion bash）
+_memlocal() {
+  local cur cmd
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  cmd="\${COMP_WORDS[1]}"
+  if [ "\$COMP_CWORD" -eq 1 ]; then
+    COMPREPLY=( \$(compgen -W "${cmds}" -- "\$cur") )
+  else
+    COMPREPLY=( \$(compgen -W "${flags}" -- "\$cur") )
+  fi
+}
+complete -F _memlocal memlocal`;
+        if (install) { const f = path.join(store.homeDir(), 'completion.bash'); fs.writeFileSync(f, bash); log('已写入 ' + f + '\n加到 ~/.bashrc:  source ' + f); }
+        else log(bash);
+      }
+      return;
+    }
     case 'config': {
       const action = process.argv[3]; // get | set
       if (action === 'set') {
@@ -275,6 +315,14 @@ async function main() {
       log(`导出完成：${r.total} 条记忆`);
       log('  Markdown: ' + r.mdFile);
       log('  JSON:     ' + r.jsonFile);
+      return;
+    }
+    case 'git-export': {
+      const repo = getArg('--repo');
+      const r = backupMod.gitExport({ repo });
+      log(`记忆已版本化提交：${r.commit}（${r.total} 条）`);
+      log('  仓库: ' + r.repo);
+      log('  回溯: cd ' + r.repo + ' && git log --oneline');
       return;
     }
     case 'extract': {

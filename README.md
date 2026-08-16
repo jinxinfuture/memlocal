@@ -84,6 +84,8 @@ memlocal extract --text "我叫小王，负责记忆层。我讨厌香菜。" --
 | `memlocal config get\|set <key> <value>` | 查看/设置配置（如 `deepseek.apiKey sk-xxx`、`realTargets.claude ~/.claude/CLAUDE.md`） |
 | `memlocal backup` / `backups` / `restore --file <备份>` | 创建 / 列出 / 恢复备份（gzip 压缩到 `~/.memlocal/backups/`，恢复前自动另存安全备份） |
 | `memlocal export-all` | 导出全部记忆（合并 Markdown + 原始 JSON，可迁移到其它工具） |
+| `memlocal git-export [--repo <目录>]` | 记忆版本化：提交快照到 git（`git log` 可回溯任意历史版本） |
+| `memlocal completion bash\|zsh [--install]` | shell 自动补全（--install 写入 `~/.memlocal`） |
 | `memlocal watch [--interval N] [--real]` | 监听各 agent 记忆文件变化，自动导入 + 同步（Ctrl+C 停止） |
 | `memlocal serve` | 启动 Web 面板（默认 `:4173`，含「从文本抽取记忆」+ 搜索 + 真实写回预览） |
 | `memlocal status` | 查看 store 统计、已支持 agent、真实写回配置 |

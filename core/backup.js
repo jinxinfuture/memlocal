@@ -107,4 +107,41 @@ function exportAll() {
   return { mdFile, jsonFile, total: store.memories.length };
 }
 
-module.exports = { createBackup, listBackups, restoreBackup, exportAll, backupsDir };
+/**
+ * 记忆版本化（git 导出）
+ * 把 store 快照提交到 git 仓库（默认 <home>/memory-repo），每次调用产生一个 commit，
+ * 支持 `git log` 回溯任意历史版本。零依赖（调用系统 git）。
+ * @returns {{repo, commit, total}}
+ */
+function gitExport(opts = {}) {
+  const { execSync } = require('child_process');
+  const repo = opts.repo || path.join(storeMod.homeDir(), 'memory-repo');
+  fs.mkdirSync(repo, { recursive: true });
+
+  // 若目录非 git 仓库则初始化
+  if (!fs.existsSync(path.join(repo, '.git'))) {
+    execSync('git init -q', { cwd: repo });
+    execSync('git config user.email memlocal@local', { cwd: repo });
+    execSync('git config user.name memlocal', { cwd: repo });
+  }
+
+  // 快照文件：store.json + 可读 memories.md + 索引
+  const store = storeMod.loadStore();
+  const active = (store.memories || []).filter(m => !m.archived);
+  fs.writeFileSync(path.join(repo, 'store.json'), JSON.stringify(store, null, 2));
+  const TYPE_TITLE = { identity: '身份', preference: '偏好', project: '项目', context: '背景', fact: '事实', summary: '摘要' };
+  const order = ['identity', 'preference', 'project', 'context', 'fact', 'summary'];
+  const lists = { identity: [], preference: [], project: [], context: [], fact: [], summary: [] };
+  for (const m of active) (lists[m.type] || lists.fact).push(`- ${m.content}`);
+  let md = `# MemLocal 记忆快照\n\n> ${new Date().toISOString()} · ${active.length} 条活跃记忆\n`;
+  for (const t of order) if (lists[t].length) md += `\n## ${TYPE_TITLE[t]}\n` + lists[t].join('\n') + '\n';
+  fs.writeFileSync(path.join(repo, 'memories.md'), md, 'utf8');
+  fs.writeFileSync(path.join(repo, 'index.json'), JSON.stringify({ exportedAt: Date.now(), total: active.length, version: store.version }, null, 2));
+
+  execSync('git add -A', { cwd: repo });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const out = execSync(`git commit -q -m "记忆快照 ${stamp}" --allow-empty && git rev-parse --short HEAD`, { cwd: repo, encoding: 'utf8' });
+  return { repo, commit: out.trim(), total: active.length };
+}
+
+module.exports = { createBackup, listBackups, restoreBackup, exportAll, gitExport, backupsDir };

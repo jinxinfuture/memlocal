@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Test suite
+        run: npm test
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify installed
+        run: |
+          npm install -g memlocal --registry https://registry.npmjs.org/
+          memlocal --version
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "v${VERSION}" \
+            --notes "见 CHANGELOG.md — 完整变更：https://github.com/jinxinfuture/memlocal/blob/main/CHANGELOG.md"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

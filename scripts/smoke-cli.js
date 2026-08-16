@@ -134,6 +134,22 @@ console.log('\n[15] doctor');
   check('doctor 输出诊断', out.includes('诊断完成') && out.includes('store'));
 }
 
+console.log('\n[16] completion');
+{
+  const b = run('completion bash');
+  check('bash 补全脚本', b.includes('complete -F _memlocal'));
+  const z = run('completion zsh');
+  check('zsh 补全脚本', z.includes('compdef _memlocal'));
+}
+
+console.log('\n[17] git-export');
+{
+  const g1 = run('git-export');
+  check('版本化提交', g1.includes('已版本化提交') && /\b[0-9a-f]{7}\b/.test(g1));
+  const g2 = run('git-export');
+  check('增量提交成功', g2.includes('已版本化提交'));
+}
+
 // 清理
 fs.rmSync(HOME, { recursive: true, force: true });
 
